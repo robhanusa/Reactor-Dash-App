@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import dash
 import dash_html_components as html
 import dash_core_components as dcc
+from dash.dependencies import Input, Output, State
 
 #sp: solar panel
 #wt: wind turbine
@@ -53,10 +54,10 @@ class Hourly_state:
         self.time = df_weather["time"][hour]
         self.wind = df_weather["windspeed_100m (km/h)"][hour] #km/h
         self.wind_energy = calc_wind_energy(self.wind) #kW
-        self.wind_power = self.wind_energy/10 #kWh
+        self.wind_power = self.wind_energy #kWh
         self.solar = df_weather["shortwave_radiation (W/m²)"][hour] #W/m2
         self.solar_energy = calc_solar_energy(self.solar) #kW
-        self.solar_power = self.solar_energy/10 #kWh
+        self.solar_power = self.solar_energy #kWh
         
 class Reactor1:
     ku = .1 
@@ -120,32 +121,61 @@ class Reactor2:
             else:
                 return prev + Reactor2.kd*e_t
             
-x = [i for i in range(len(df_weather))]
+x = [i for i in range(1,51)]
 y = [0]*len(df_weather)
+r2_prev = 0 
 
 for i in range(len(y)):
     state = Hourly_state(i)
     reactor2 = Reactor2()
     total_e = state.wind_power + state.solar_power
-    if i == 0:
-        r2_current = reactor2.react(total_e,0)
-    else:
-        r2_current = reactor2.react(total_e,r2_prev)
+
+    r2_current = reactor2.react(total_e,r2_prev)
     y[i] = r2_current
     r2_prev = r2_current
     
+#https://stackoverflow.com/questions/63589249/plotly-dash-display-real-time-data-in-smooth-animation    
+fig = dict(data = [{"x": [], "y": [], "type": "lines"}],
+              layout = dict(xaxis=dict(range=[0,50]), yaxis=dict(range=[0,1])))
+
+clientside_function = """
+    function (n_intervals, data, offset){
+        offset = offset % data.x.length;
+        const end = Math.min((offset + 10), data.x.length);
+        return [[{x: [data.x.slice(0,offset)], y: [data.y.slice(offset,end)]},[0], 50], end]}
+"""
             
 app = dash.Dash(__name__, update_title=None)
-app.layout = html.Div(
-    dcc.Graph(
-        figure = {
-            "data":  [
-                {
-                    "x":x,
-                    "y":y,
-                    "type": "lines",
-                    }]})
-    )
+app.layout = html.Div([
+    dcc.Graph(id="r2_out_graph", figure=fig),
+    dcc.Interval(id="r2_out_interval",interval=100, n_intervals=1, max_intervals=len(y)-50)])
+
+#example of updating entire figure: https://dash.plotly.com/basic-callbacks
+#notice "transition_duration" i can use to make smooth transitions
+
+@app.callback(Output(component_id='r2_out_graph', component_property='extendData'), 
+              [Input(component_id='r2_out_interval', component_property='n_intervals')])
+
+def update_data(n_intervals):
+    # tuple is (dict of new data, target trace index, number of points to keep)
+    #return dict(x=[[n_intervals, n_intervals+1]], y=[[n_intervals/10, n_intervals/9]]), [0], 50
+    #return dict(x=[[x[index]]], y=[[y[index]]]), [0], 50
+#    return dict(x=[[i for i in range(1,4)]], y=[[y1,y2,y3]]), [0], 3 #this works, do something similar
+    return dict(x=[x], y=[[y[i] for i in range(n_intervals,n_intervals+50)]]), [0], 50
+
+    
+    
+# app.layout = html.Div([
+#     dcc.Graph(id="r2_out", figure=fig), 
+#     dcc.Interval(id="r2_out_interval", interval=300),
+#     dcc.Store(id="r2_out_offset", data=0),
+#     dcc.Store(id="r2_out_store", data=dict(x=x, y=y, resolution=len(y)))
+#     ])
+
+# app.clientside_callback(clientside_function,
+#                         [Output("r2_out", "extendData"), Output("r2_out_offset","data")],
+#                         [Input("r2_out_interval", "n_intervals")], 
+#                         [State("r2_out_store","data"),State("r2_out_offset","data")])
 
 if __name__ == "__main__":
     app.run_server(debug=True)
