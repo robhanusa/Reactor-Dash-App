@@ -7,11 +7,12 @@ Created on Mon May  8 12:43:06 2023
 import numpy as np
 import math
 import pandas as pd
-import matplotlib.pyplot as plt
 import dash
 import dash_html_components as html
 import dash_core_components as dcc
 from dash.dependencies import Input, Output, State
+import plotly.graph_objects as go
+import plotly.express as px
 
 #sp: solar panel
 #wt: wind turbine
@@ -21,7 +22,7 @@ wt_cut_in = 13 #km/h
 wt_rated_speed = 50 #km/h
 wt_cut_out = 100 #km/h
 wt_max_energy = 5 #kw
-
+data_length = 200
 r1_cleaning_speed = 0.1
 
 cols = ["time","windspeed_100m (km/h)","shortwave_radiation (W/m²)"]
@@ -29,7 +30,7 @@ cols = ["time","windspeed_100m (km/h)","shortwave_radiation (W/m²)"]
 df_weather = pd.read_csv("wind_solar_2013-2022_open-meteo.com.csv",
                          skiprows=3,
                          usecols=cols,
-                         nrows=100)
+                         nrows=data_length)
 
 df_weather["time"] = pd.to_datetime(df_weather["time"])
 
@@ -69,17 +70,20 @@ class Reactor1:
 
     @classmethod
     def ss_output(cls, energy):
-        return 1/(1 + math.exp(-.85 * energy + 1))
+        return 1/(1 + math.exp(-energy + 1))
     
     def react(cls, energy, prev):
+        Reactor1.state = "active"
         e_t = Reactor1.ss_output(energy)-prev
         if e_t > 0:
-            return prev + Reactor1.ku*e_t
+            cos_produced = prev + Reactor1.ku*e_t
         else:
-            return prev + Reactor1.kd*e_t
+            cos_produced = prev + Reactor1.kd*e_t
+        Reactor1.add_water(cos_produced)
+        return cos_produced
         
     def add_water(cos_produced):
-        Reactor1.saturation += cos_produced/1000
+        #Reactor1.saturation += cos_produced/1000
         Reactor1.state = "active"
         
     def check_saturation():
@@ -107,75 +111,100 @@ class Reactor2:
         
     @classmethod
     def ss_output(cls, energy):
-        return 1/(1 + math.exp(-.85 * energy + 3))
+        return 1/(1 + math.exp(-energy + 3))
     
     def react(cls, energy, prev):
-        if energy == 0:
-            Reactor2.state = "idle"
-            return 0 
-        else: 
-            Reactor2.state = "active"
-            e_t = Reactor2.ss_output(energy)-prev
-            if e_t > 0:
-                return prev + Reactor2.ku*e_t
-            else:
-                return prev + Reactor2.kd*e_t
+        Reactor2.state = "active"
+        e_t = Reactor2.ss_output(energy)-prev
+        if e_t > 0:
+            return prev + Reactor2.ku*e_t
+        else:
+            return prev + Reactor2.kd*e_t
             
-x = [i for i in range(1,51)]
-y = [0]*len(df_weather)
+            
+idle_start_length = 50
+x = [i for i in range(-50,1)]
+r1_cos_out = [0]*(data_length+idle_start_length)
+r2_sx_out = [0]*(data_length+idle_start_length)
+r1_e = [0]*(data_length+idle_start_length)
+r2_e = [0]*(data_length+idle_start_length)
+
+r1_prev = 0 
 r2_prev = 0 
+reactor2 = Reactor2()
+reactor1 = Reactor1()
 
-for i in range(len(y)):
+#calculate conditions at each hourly state
+for i in range(data_length):
     state = Hourly_state(i)
-    reactor2 = Reactor2()
-    total_e = state.wind_power + state.solar_power
-
-    r2_current = reactor2.react(total_e,r2_prev)
-    y[i] = r2_current
-    r2_prev = r2_current
     
-#https://stackoverflow.com/questions/63589249/plotly-dash-display-real-time-data-in-smooth-animation    
-fig = dict(data = [{"x": [], "y": [], "type": "lines"}],
-              layout = dict(xaxis=dict(range=[0,50]), yaxis=dict(range=[0,1])))
+    #calculate reactor 1 state
+    r1_e_current = (state.wind_power + state.solar_power)*.25 #the .75 is an arbitrary factor for distributing the energy.
+    r1_cos_current = reactor1.react(r1_e_current,r1_prev)
+    r1_cos_out[i+idle_start_length] = r1_cos_current
+    r1_e[i+idle_start_length] = r1_e_current
+    r1_prev = r1_cos_current
+    
+    #calculate reactor 2 state
+    r2_e_current = (state.wind_power + state.solar_power)*.75 #the .75 is an arbitrary factor for distributing the energy.
+    r2_sx_current = reactor2.react(r2_e_current,r2_prev)
+    r2_sx_out[i+idle_start_length] = r2_sx_current
+    r2_e[i+idle_start_length] = r2_e_current
+    r2_prev = r2_sx_current
+    
+#https://dash.plotly.com/dash-core-components/graph#using-the-low-level-interface-with-dicts-&-lists
+fig_r1_out = go.Figure()
+fig_r1_out.update_layout(title=go.layout.Title(text="H2S + CO2 => COS + H2O"),
+                         title_x=0.5)
+fig_r1_out.add_trace(go.Scatter(x=[],y=[], mode= "lines", name="COS produced"))
+fig_r1_out.add_trace(go.Scatter(x=[],y=[], mode= "lines", name="Energy input"))
+fig_r1_out.update_xaxes(range=[-50,0], title_text="Hours before present")
+fig_r1_out.update_yaxes(range=[0,1])
 
-clientside_function = """
-    function (n_intervals, data, offset){
-        offset = offset % data.x.length;
-        const end = Math.min((offset + 10), data.x.length);
-        return [[{x: [data.x.slice(0,offset)], y: [data.y.slice(offset,end)]},[0], 50], end]}
-"""
+fig_r2_out = go.Figure()
+fig_r2_out.add_trace(go.Scatter(x=[],y=[], mode= "lines", name="Sx produced"))
+fig_r2_out.add_trace(go.Scatter(x=[],y=[], mode= "lines", name="Energy input"))
+fig_r2_out.update_layout(title=go.layout.Title(text="COS => CO + Sx"),
+                         title_x=0.5)
+fig_r2_out.update_xaxes(range=[-50,0], title_text="Hours before present")
+fig_r2_out.update_yaxes(range=[0,1])
+
+#%%
             
 app = dash.Dash(__name__, update_title=None)
 app.layout = html.Div([
-    dcc.Graph(id="r2_out_graph", figure=fig),
-    dcc.Interval(id="r2_out_interval",interval=100, n_intervals=1, max_intervals=len(y)-50)])
+    dcc.Graph(id="r1_out_graph", figure=fig_r1_out),
+    dcc.Graph(id="r2_out_graph", figure=fig_r2_out),
+    dcc.Interval(id="interval",interval=100, 
+                 n_intervals=0, max_intervals=len(r2_sx_out)-51)])
 
 #example of updating entire figure: https://dash.plotly.com/basic-callbacks
 #notice "transition_duration" i can use to make smooth transitions
 
-@app.callback(Output(component_id='r2_out_graph', component_property='extendData'), 
-              [Input(component_id='r2_out_interval', component_property='n_intervals')])
+@app.callback(Output(component_id='r1_out_graph', component_property='extendData'),
+              Output(component_id='r2_out_graph', component_property='extendData'),
+              Input(component_id='interval', component_property='n_intervals'))
 
-def update_data(n_intervals):
-    # tuple is (dict of new data, target trace index, number of points to keep)
-    #return dict(x=[[n_intervals, n_intervals+1]], y=[[n_intervals/10, n_intervals/9]]), [0], 50
-    #return dict(x=[[x[index]]], y=[[y[index]]]), [0], 50
-#    return dict(x=[[i for i in range(1,4)]], y=[[y1,y2,y3]]), [0], 3 #this works, do something similar
-    return dict(x=[x], y=[[y[i] for i in range(n_intervals,n_intervals+50)]]), [0], 50
-
+def update(n_intervals):
+    r1_out_graph_updates = [
+        dict(x=[x, x], 
+             y=[
+                 [r1_cos_out[i] for i in range(n_intervals,n_intervals+51)],
+                 [r1_e[i] for i in range(n_intervals,n_intervals+51)]
+               ]
+             ),
+            [0,1], 51, 51] #51 is for 51 points that are replaced each iteration
     
-    
-# app.layout = html.Div([
-#     dcc.Graph(id="r2_out", figure=fig), 
-#     dcc.Interval(id="r2_out_interval", interval=300),
-#     dcc.Store(id="r2_out_offset", data=0),
-#     dcc.Store(id="r2_out_store", data=dict(x=x, y=y, resolution=len(y)))
-#     ])
+    r2_out_graph_updates = [
+        dict(x=[x, x], 
+             y=[
+                 [r2_sx_out[i] for i in range(n_intervals,n_intervals+51)],
+                 [r2_e[i] for i in range(n_intervals,n_intervals+51)]
+                 ]
+             ), 
+            [0,1], 51, 51]
+    return r1_out_graph_updates, r2_out_graph_updates
 
-# app.clientside_callback(clientside_function,
-#                         [Output("r2_out", "extendData"), Output("r2_out_offset","data")],
-#                         [Input("r2_out_interval", "n_intervals")], 
-#                         [State("r2_out_store","data"),State("r2_out_offset","data")])
 
 if __name__ == "__main__":
     app.run_server(debug=True)
