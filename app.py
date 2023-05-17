@@ -12,16 +12,16 @@ import dashboard_components as dc
             
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], update_title=None)
 app.layout = dbc.Container([
+    dbc.Row([dbc.Col(dcc.Graph(id="energy_allocation_graph",figure=dc.fig_e_allo)),
     dbc.Row([dbc.Col(dcc.Graph(id="reactor1_output_graph", figure=dc.fig_r1), width=6),
             dbc.Col(dcc.Graph(id="reactor2_output_graph", figure=dc.fig_r2), width=6,)],
             style=dict(padding="0px", margin="0px")),
     dbc.Row([dbc.Col(dcc.Graph(id="r1_rxn_graph", figure=dc.fig_r1_rxn), width=6),
-             dbc.Col(dcc.Graph(id="r2_rxn_graph", figure=dc.fig_r2_rxn), width=6)]),
-    dbc.Row([dbc.Col(dcc.Graph(id="energy_allocation_graph",figure=dc.fig_e_allo))]),
-    dcc.Interval(id="interval",interval=200, 
-                  n_intervals=0, max_intervals=len(dc.r2_sx_out)-51)])
+             dbc.Col(dcc.Graph(id="r2_rxn_graph", figure=dc.fig_r2_rxn), width=6)])
+    ]),
+    dcc.Interval(id="interval",interval=10, 
+                  n_intervals=0, max_intervals=len(dc.r2_sx_out)-501)])
 
-#style=dict(padding="0px", margin="0px")
 
 @app.callback(Output(component_id='reactor1_output_graph', component_property='extendData'),
               Output(component_id='reactor2_output_graph', component_property='extendData'),

@@ -11,16 +11,27 @@ from weather_energy_components import data_length
 from plant_components import Battery, Reactor1, Reactor2
 from weather_energy_components import Hourly_state, distribute_energy
 
+#periods per hour. Reactor states will be calculated "pph" times per hour. eg
+#if pph = 10, states are calculated every 1hr/10 = 6 min. This is necessary because 
+#the weather data hourly, but plant state is calculated more frequently
+pph = 10
+
+#step duration for each change of energy allocation
 alloc_step = 10
-idle_start_length = 50
-x = [i for i in range(-50,1)]
-r1_cos_out = np.zeros(data_length + idle_start_length)
-r2_sx_out = np.zeros(data_length + idle_start_length)
-r1_e = np.zeros(data_length + idle_start_length)
-r2_e = np.zeros(data_length + idle_start_length)
-generated_kw = np.zeros(data_length + idle_start_length)
-consumed_kw = np.zeros(data_length + idle_start_length)
-battery_charge = [50]*(data_length + idle_start_length)
+
+#length of graphs' x axes.
+idle_start_length = 500
+x = [i*60/pph for i in range(-500,1)] ##changed 50 to 500
+
+num_periods = data_length*pph
+
+r1_cos_out = np.zeros(num_periods + idle_start_length)
+r2_sx_out = np.zeros(num_periods + idle_start_length)
+r1_e = np.zeros(num_periods + idle_start_length)
+r2_e = np.zeros(num_periods + idle_start_length)
+generated_kw = np.zeros(num_periods + idle_start_length)
+consumed_kw = np.zeros(num_periods + idle_start_length)
+battery_charge = [50]*(num_periods + idle_start_length)
 
 r1_prev = 0 
 r2_prev = 0 
@@ -29,33 +40,35 @@ reactor1 = Reactor1()
 battery = Battery(50)
 
 #calculate conditions at each hourly state
-for i in range(data_length):
-    state = Hourly_state(i)
+for hour in range(data_length):
+    state = Hourly_state(hour)
+    for i in range(pph):
+        period = hour*pph + i
+            
+        #consumed and stored energy
+        generated_kw[period + idle_start_length] = state.wind_power/pph + state.solar_power/pph
         
-    #consumed and stored energy
-    generated_kw[i + idle_start_length] = state.wind_power + state.solar_power
-    
-    r1_e_current, r2_e_current, e_to_battery = distribute_energy(
-        generated_kw[i+ idle_start_length], 
-        battery.charge, 
-        r1_e[i+idle_start_length-alloc_step:i+idle_start_length], 
-        r2_e[i+idle_start_length-alloc_step:i+idle_start_length])
-    
-    battery.charge += e_to_battery*battery.efficiency
-    battery_charge[i + idle_start_length] = battery.charge
-    consumed_kw[i + idle_start_length] = r1_e_current + r2_e_current
-    
-    #calculate reactor 1 state
-    r1_cos_current = reactor1.react(r1_e_current,r1_prev)
-    r1_cos_out[i+idle_start_length] = r1_cos_current
-    r1_e[i+idle_start_length] = r1_e_current
-    r1_prev = r1_cos_current
-    
-    #calculate reactor 2 state
-    r2_sx_current = reactor2.react(r2_e_current,r2_prev)
-    r2_sx_out[i+idle_start_length] = r2_sx_current
-    r2_e[i+idle_start_length] = r2_e_current
-    r2_prev = r2_sx_current
+        r1_e_current, r2_e_current, e_to_battery = distribute_energy(
+            generated_kw[period+ idle_start_length], 
+            battery.charge, 
+            r1_e[period + idle_start_length-alloc_step:period + idle_start_length], 
+            r2_e[period + idle_start_length-alloc_step:period + idle_start_length])
+        
+        battery.charge += e_to_battery * battery.efficiency / pph #divide by pph because this is kWh
+        battery_charge[period + idle_start_length] = battery.charge
+        consumed_kw[period + idle_start_length] = r1_e_current + r2_e_current
+        
+        #calculate reactor 1 state
+        r1_cos_current = reactor1.react(r1_e_current, r1_prev)
+        r1_cos_out[period + idle_start_length] = r1_cos_current
+        r1_e[period + idle_start_length] = r1_e_current
+        r1_prev = r1_cos_current
+        
+        #calculate reactor 2 state
+        r2_sx_current = reactor2.react(r2_e_current, r2_prev)
+        r2_sx_out[period + idle_start_length] = r2_sx_current
+        r2_e[period + idle_start_length] = r2_e_current
+        r2_prev = r2_sx_current
 
 graph_margin = dict(b=60, l=20, r=20, t=60)
 
@@ -68,7 +81,7 @@ fig_r1.add_trace(go.Scatter(x=[], y=[], mode= "lines", name="COS produced",
 fig_r1.add_trace(go.Scatter(x=[], y=[], mode= "lines", name="Energy input",
                                   legendgroup=1),
                        row=1, col=1, secondary_y=True)
-fig_r1.update_xaxes(title_text="Hours before present", range=[-50,0],
+fig_r1.update_xaxes(title_text="Minutes before present", range=[-500,0],
                           row=1, col=1)
 fig_r1.update_yaxes(title_text="Kg COS per hour", range=[0,1], 
                     secondary_y=False, row=1, col=1)
@@ -88,7 +101,7 @@ fig_r2.add_trace(go.Scatter(x=[], y=[], mode= "lines", name="Sx produced",
 fig_r2.add_trace(go.Scatter(x=[], y=[], mode= "lines", name="Energy input",
                                   legendgroup=1),
                      row=1, col=1, secondary_y=True)
-fig_r2.update_xaxes(title_text="Hours before present", range=[-50,0],
+fig_r2.update_xaxes(title_text="Minutes before present", range=[-500,0],
                           row=1, col=1)
 fig_r2.update_yaxes(title_text="Kg Sx per hour", range=[0,1], 
                     secondary_y=False, row=1, col=1)
@@ -143,11 +156,11 @@ fig_e_allo.add_trace(go.Scatter(x=[], y=[], mode= "lines", name="Energy allocate
 fig_e_allo.add_trace(go.Scatter(x=[], y=[], mode= "lines", name="Battery charge",
                                   legendgroup=1),
                        row=1, col=1, secondary_y=True)
-fig_e_allo.update_xaxes(title_text="Hours before present", range=[-50,0],
+fig_e_allo.update_xaxes(title_text="Minutes before present", range=[-500,0],
                           row=1, col=1)
 fig_e_allo.update_yaxes(title_text="kW produced/consumed", range=[0,20], 
                     secondary_y=False, row=1, col=1)
-fig_e_allo.update_yaxes(title_text="kW stored in battery", range=[0,100], 
+fig_e_allo.update_yaxes(title_text="kWh stored in battery", range=[0,100], 
                     secondary_y=True, row=1, col=1)
 fig_e_allo.update_layout(title_text="Energy Allocation", title_x=0.5,
                      title=dict(yref="paper", y=1, yanchor="bottom", pad=dict(b=20)),
@@ -159,19 +172,19 @@ def update(n_intervals):
     r1_updates = [
         dict(x=[x, x], 
              y=[
-                 [r1_cos_out[i] for i in range(n_intervals,n_intervals+51)],
-                 [r1_e[i] for i in range(n_intervals,n_intervals+51)]
+                 [r1_cos_out[i] for i in range(n_intervals,n_intervals + idle_start_length + 1)],
+                 [r1_e[i] for i in range(n_intervals,n_intervals+idle_start_length + 1)]
                ]
              ),
-            [0,1], 51, 51]#51 is for 51 points that are replaced each iteration
+            [0,1], idle_start_length + 1, idle_start_length + 1]#51 is for 51 points that are replaced each iteration
     r2_updates = [
         dict(x=[x, x], 
              y=[
-                 [r2_sx_out[i] for i in range(n_intervals,n_intervals+51)],
-                 [r2_e[i] for i in range(n_intervals,n_intervals+51)]
+                 [r2_sx_out[i] for i in range(n_intervals,n_intervals+idle_start_length + 1)],
+                 [r2_e[i] for i in range(n_intervals,n_intervals+idle_start_length + 1)]
                ]
              ),
-            [0,1], 51, 51] 
+            [0,1], idle_start_length + 1, idle_start_length + 1] 
     r1_rxn_updates = [
         dict(x=[r1_rxn_curve_x, [r1_e[n_intervals+idle_start_length]]*20], 
              y=[
@@ -191,10 +204,10 @@ def update(n_intervals):
     e_allocation = [
         dict(x=[x, x, x], 
              y=[
-                 [generated_kw[i] for i in range(n_intervals,n_intervals+51)],
-                 [consumed_kw[i] for i in range(n_intervals,n_intervals+51)],
-                 [battery_charge[i] for i in range(n_intervals,n_intervals+51)]
+                 [generated_kw[i] for i in range(n_intervals,n_intervals+idle_start_length + 1)],
+                 [consumed_kw[i] for i in range(n_intervals,n_intervals+idle_start_length + 1)],
+                 [battery_charge[i] for i in range(n_intervals,n_intervals+idle_start_length + 1)]
                ]
              ),
-            [0,1,2], 51, 51, 51]
+            [0,1,2], idle_start_length + 1, idle_start_length + 1, idle_start_length + 1]
     return r1_updates, r2_updates, r1_rxn_updates, r2_rxn_updates, e_allocation

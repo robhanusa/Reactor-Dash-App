@@ -5,6 +5,8 @@ Created on Wed May 17 07:53:37 2023
 @author: rhanusa
 """
 import pandas as pd
+#from dashboard_components import pph
+pph=10
 
 #sp: solar panel
 #wt: wind turbine
@@ -32,7 +34,7 @@ df_weather["time"] = pd.to_datetime(df_weather["time"])
 
 #calc kw's generated from solar panels
 def calc_solar_energy(solar_radiation):
-    return solar_radiation*sp_area*sp_efficiency/1000 
+    return solar_radiation*sp_area*sp_efficiency/1000
 
 #calc kw's generated from wind turbines
 #for simplicity, assuming linear relationship between cut-in and rated speeds
@@ -43,18 +45,18 @@ def calc_wind_energy(windspeed):
     elif windspeed > wt_rated_speed: 
         return wt_max_energy
     else:
-        return wt_max_energy*(windspeed - wt_cut_in)/(wt_rated_speed - wt_cut_in)
+        return (wt_max_energy*(windspeed - wt_cut_in)/(wt_rated_speed - wt_cut_in))
 
-#each system state comprises of a period of 6 minutes (10/hour)
+#each system state comprises of a period of 6 minutes (10/hour) because pph = 10
 class Hourly_state:
     def __init__(self,hour):
         self.time = df_weather["time"][hour]
         self.wind = df_weather["windspeed_100m (km/h)"][hour] #km/h
         self.wind_energy = calc_wind_energy(self.wind) #kW
-        self.wind_power = self.wind_energy #kWh
+        self.wind_power = self.wind_energy*pph #kWh
         self.solar = df_weather["shortwave_radiation (W/m²)"][hour] #W/m2
         self.solar_energy = calc_solar_energy(self.solar) #kW
-        self.solar_power = self.solar_energy #kWh
+        self.solar_power = self.solar_energy*pph #kWh
         
         
 #need to adjust this so that the COS produced = COS consumed
