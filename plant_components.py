@@ -1,0 +1,75 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Wed May 17 07:44:15 2023
+
+@author: rhanusa
+"""
+import math
+
+r1_cleaning_speed = 0.1
+
+class Battery:
+    def __init__(self,charge):
+        self.charge = charge
+        self.efficiency = 0.9 #note this might be a function of charge etc, so not a simple constant
+        
+class Reactor1:
+    ku = .1 
+    kd = .2 
+    
+    def __init__(self):
+        self.state = "idle"
+        self.saturation = 0 
+
+    @classmethod
+    def ss_output(cls, energy):
+        return 2/(1 + math.exp(-energy + 1))-0.54
+    
+    def react(cls, energy, prev):
+        Reactor1.state = "active"
+        e_t = Reactor1.ss_output(energy)-prev
+        if e_t > 0:
+            cos_produced = prev + Reactor1.ku*e_t
+        else:
+            cos_produced = prev + Reactor1.kd*e_t
+        Reactor1.add_water(cos_produced)
+        return cos_produced
+        
+    def add_water(cos_produced):
+        #Reactor1.saturation += cos_produced/1000
+        Reactor1.state = "active"
+        
+    def check_saturation():
+        if Reactor1.saturation < 1:
+            return False
+        else:
+            return True
+
+    def clean():
+        if Reactor1.state == "idle":
+            return;
+        else:
+            Reactor1.saturation = max(0, Reactor1.saturation - r1_cleaning_speed)
+        if Reactor1.saturation == 0: 
+            Reactor1.state == "idle"
+        else:
+            Reactor1.state == "cleaning"
+            
+class Reactor2: 
+    ku = .1 
+    kd = .2 
+    
+    def __init__(self):
+        self.state = "idle"
+        
+    @classmethod
+    def ss_output(cls, energy):
+        return 1/(1 + math.exp(-energy + 3))-0.05
+    
+    def react(cls, energy, prev):
+        Reactor2.state = "active"
+        e_t = Reactor2.ss_output(energy)-prev
+        if e_t > 0:
+            return prev + Reactor2.ku*e_t
+        else:
+            return prev + Reactor2.kd*e_t
