@@ -7,9 +7,12 @@ Created on Wed May 17 09:30:04 2023
 import numpy as np
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
+import plotly.express as px
 from weather_energy_components import data_length
 from plant_components import Battery, Reactor1, Reactor2
-from weather_energy_components import Hourly_state, distribute_energy
+from weather_energy_components import Hourly_state, distribute_energy, battery_max
+import math
+
 
 #periods per hour. Reactor states will be calculated "pph" times per hour. eg
 #if pph = 10, states are calculated every 1hr/10 = 6 min. This is necessary because 
@@ -32,6 +35,7 @@ r2_e = np.zeros(num_periods + idle_start_length)
 generated_kw = np.zeros(num_periods + idle_start_length)
 consumed_kw = np.zeros(num_periods + idle_start_length)
 battery_charge = [50]*(num_periods + idle_start_length)
+kw_to_battery_arr = np.zeros(num_periods + idle_start_length)
 
 r1_prev = 0 
 r2_prev = 0 
@@ -57,6 +61,7 @@ for hour in range(data_length):
         battery.charge += e_to_battery * battery.efficiency / pph #divide by pph because this is kWh
         battery_charge[period + idle_start_length] = battery.charge
         consumed_kw[period + idle_start_length] = r1_e_current + r2_e_current
+        kw_to_battery_arr[period + idle_start_length] = e_to_battery
         
         #calculate reactor 1 state
         r1_cos_current = reactor1.react(r1_e_current, r1_prev)
@@ -167,8 +172,11 @@ fig_e_allo.update_layout(title_text="Energy Allocation", title_x=0.5,
                      legend=dict(yanchor="top", xanchor="left", y=0.99, x=0.01),
                      margin=graph_margin)
 
+#bar chart for battery level
+fig_bat_lvl = make_subplots(rows=1,cols=1)
+fig_bat_lvl.add_trace(go.Bar(x=[], y=[]))
 
-def update(n_intervals):
+def update1(n_intervals):
     r1_updates = [
         dict(x=[x, x], 
              y=[
@@ -210,4 +218,34 @@ def update(n_intervals):
                ]
              ),
             [0,1,2], idle_start_length + 1, idle_start_length + 1, idle_start_length + 1]
-    return r1_updates, r2_updates, r1_rxn_updates, r2_rxn_updates, e_allocation
+    
+    kw_to_battery = kw_to_battery_arr[n_intervals + idle_start_length]
+    
+    state = Hourly_state(math.floor(n_intervals/pph))
+    time = state.time
+    
+    kw_gen = generated_kw[n_intervals + idle_start_length]
+    
+    bat_lvl_full = battery_charge[n_intervals + idle_start_length]
+    bat_lvl_empty = battery_max - battery_charge[n_intervals + idle_start_length]
+ 
+    fig_bat_lvl = go.Figure(data=[go.Bar(x=[1], y=[bat_lvl_full], marker_color="green"),
+                                  go.Bar(x=[1], y=[bat_lvl_empty],  marker_color="gray")])
+    fig_bat_lvl.update_layout(title_text="Battery Level", title_x=0.5, title_y=0.96,
+                              barmode='stack', paper_bgcolor="rgba(0,0,0,0)",
+                              plot_bgcolor='rgba(0, 0, 0, 0)', showlegend=False,
+                              margin=dict(l=20, r=20, t=20, b=20), height=200,
+                              width=150)
+    fig_bat_lvl.update_xaxes(showticklabels=False)
+    fig_bat_lvl.update_yaxes(tickmode="array", tickvals=[round(bat_lvl_full)])
+
+
+    return (r1_updates, r2_updates, r1_rxn_updates, r2_rxn_updates, e_allocation,
+            round(kw_to_battery,2), time.strftime("%d-%m-%Y %H:%M:%S"), fig_bat_lvl,
+            round(kw_gen,2), round(r1_e[n_intervals + idle_start_length],2),
+            round(r2_e[n_intervals + idle_start_length],2),"X.XX")
+
+#update function for r1 reactor saturations
+
+def update_r1s(n_intervals):
+    return
