@@ -29,9 +29,9 @@ app.layout = dbc.Container([
             ]), #kW to condenser
     dbc.Row([dbc.Col(), #diagram with the 3 R1's and their status's
             dbc.Col()]), #static image with R2, condenser, and sulfur screen
-    dbc.Row([dbc.Col(), #Saturation of 1st R1 in a bar graph
-            dbc.Col(), #Saturation of 2nd R1 in a bar graph
-            dbc.Col(), #Saturation of 3rd R1 in a bar graph
+    dbc.Row([dbc.Col(dcc.Graph(id="fig_lvl_r1_1"), width=1), #Saturation of 1st R1 in a bar graph
+            dbc.Col(dcc.Graph(id="fig_lvl_r1_2"), width=1), #Saturation of 2nd R1 in a bar graph
+            dbc.Col(dcc.Graph(id="fig_lvl_r1_3"), width=1), #Saturation of 3rd R1 in a bar graph
             dbc.Col(), #text tallying R1 changeovers
             dbc.Col(), #Text tallying S screen changeovers
             dbc.Col()]), #Saturation of sulfur screen in a bar graph
@@ -40,9 +40,11 @@ app.layout = dbc.Container([
             dbc.Col(dcc.Graph(id="reactor2_output_graph", figure=dc.fig_r2), width=6)]),
     dbc.Row([dbc.Col(dcc.Graph(id="r1_rxn_graph", figure=dc.fig_r1_rxn), width=6),
              dbc.Col(dcc.Graph(id="r2_rxn_graph", figure=dc.fig_r2_rxn), width=6)]),
-    dcc.Interval(id="interval",interval=100, 
+    dcc.Interval(id="interval",interval=300, 
                   n_intervals=0, max_intervals=len(dc.r2_sx_out)-501)])
 
+#combining all outputs into one callback may help with performance, even if it 
+#looks messy
 @app.callback(Output(component_id='reactor1_output_graph', component_property='extendData'),
               Output(component_id='reactor2_output_graph', component_property='extendData'),
               Output(component_id='r1_rxn_graph', component_property='extendData'),
@@ -55,10 +57,20 @@ app.layout = dbc.Container([
               Output(component_id='kw_to_r1', component_property='children'),
               Output(component_id='kw_to_r2', component_property='children'),
               Output(component_id='kw_to_condenser', component_property='children'),
+              Output(component_id='fig_lvl_r1_1', component_property='figure'),
+              Output(component_id='fig_lvl_r1_2', component_property='figure'),
+              Output(component_id='fig_lvl_r1_3', component_property='figure'),
               Input(component_id='interval', component_property='n_intervals'))
 
 def update1(n_intervals):
     return dc.update1(n_intervals)
+
+# @app.callback(Output(component_id='fig_lvl_r1_1', component_property='figure'),
+#               Output(component_id='fig_lvl_r1_2', component_property='figure'),
+#               Input(component_id='interval', component_property='n_intervals'))
+
+# def update_r1s(n_intervals):
+#     return dc.update_r1s(n_intervals)
 
 if __name__ == "__main__":
     app.run_server(debug=True)

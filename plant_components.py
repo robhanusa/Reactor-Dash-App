@@ -13,17 +13,41 @@ class Battery:
         self.charge = charge
         self.efficiency = 0.9 #note this might be a function of charge etc, so not a simple constant
         
-class Reactor1:
+# class MetaReactor1(type):
+#     @property
+#     def saturation(cls):
+#         return cls.saturation
+    
+class Reactor1():
     ku = .1 
-    kd = .2 
+    kd = .2
+    #saturation = 0
     
     def __init__(self):
         self.state = "idle"
-        self.saturation = 0 
+        self.saturation = 0
+        
+    # @property
+    # def saturation(self):
+    #     return type(self).saturation
+        
+    # def _get_saturation(self):
+    #     return self._saturation
+    
+    # def _set_saturation(self, value):
+    #     self._saturation = value
+        
+    # radius = property(
+    #     fget = _get_saturation,
+    #     fset = _set_saturation)
 
     @classmethod
     def ss_output(cls, energy):
         return 2/(1 + math.exp(-energy + 1))-0.54
+    
+    def add_water(cos_produced):
+        # Reactor1.saturation += cos_produced/1000
+        Reactor1.state = "active"
     
     def react(cls, energy, prev):
         Reactor1.state = "active"
@@ -34,10 +58,6 @@ class Reactor1:
             cos_produced = prev + Reactor1.kd*e_t
         Reactor1.add_water(cos_produced)
         return cos_produced
-        
-    def add_water(cos_produced):
-        #Reactor1.saturation += cos_produced/1000
-        Reactor1.state = "active"
         
     def check_saturation():
         if Reactor1.saturation < 1:
