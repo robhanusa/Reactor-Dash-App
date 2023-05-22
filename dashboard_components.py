@@ -27,6 +27,9 @@ r1_sat_factor = 5
 
 r1_clean_speed = 10
 
+#Sx filter saturation speed
+sx_sat_factor = .4
+
 #length of graphs' x axes.
 idle_start_length = 500
 x = [i*60/pph for i in range(-500,1)] ##changed 50 to 500
@@ -44,6 +47,9 @@ kw_to_battery_arr = np.zeros(num_periods + idle_start_length)
 r_1_1_sat = np.zeros(num_periods + idle_start_length)
 r_1_2_sat = np.zeros(num_periods + idle_start_length)
 r_1_3_sat = np.zeros(num_periods + idle_start_length)
+sx_sat = np.zeros(num_periods + idle_start_length)
+sx_filter_changes = np.zeros(num_periods + idle_start_length)
+r1_changovers = np.zeros(num_periods + idle_start_length)
 
 #temp
 r11state = ["0"]*(num_periods + idle_start_length)
@@ -51,11 +57,13 @@ r11state = ["0"]*(num_periods + idle_start_length)
 
 r1_prev = 0 
 r2_prev = 0 
+sx_sat_prev = 0
 reactor1_1 = Reactor1()
 reactor1_2 = Reactor1()
 reactor1_1.state = "active"
 reactor2 = Reactor2()
 battery = Battery(50)
+
 
 # def react_r1(r1, r1_e_current, r1_prev):
 #     r1.react(r1_e_current, r1_prev)
@@ -91,6 +99,10 @@ for hour in range(data_length):
                 reactor1_1.saturation -= r1_cos_current/alloc_step*r1_sat_factor
                 reactor1_1.state = "cleaning"
                 reactor1_2.state = "active"
+                r1_changovers[period + idle_start_length] = r1_changovers[period + idle_start_length - 1] + 1
+            else:
+                r1_changovers[period + idle_start_length] = r1_changovers[period + idle_start_length - 1]
+                
                 
         elif reactor1_2.state == "active":
             r1_cos_current = reactor1_2.react(r1_e_current, r1_prev) 
@@ -99,6 +111,9 @@ for hour in range(data_length):
                 reactor1_2.saturation -= r1_cos_current/alloc_step*r1_sat_factor
                 reactor1_2.state = "cleaning"
                 reactor1_1.state = "active"
+                r1_changovers[period + idle_start_length] = r1_changovers[period + idle_start_length - 1] + 1
+            else:
+                r1_changovers[period + idle_start_length] = r1_changovers[period + idle_start_length - 1]
         
         r11state[period + idle_start_length] == reactor1_1.state
         
@@ -122,6 +137,16 @@ for hour in range(data_length):
         r2_sx_out[period + idle_start_length] = r2_sx_current
         r2_e[period + idle_start_length] = r2_e_current
         r2_prev = r2_sx_current
+        
+        sx_sat_current = sx_sat_prev + r2_sx_current/alloc_step*sx_sat_factor
+        if sx_sat_current < 100:
+            sx_sat[period + idle_start_length] = sx_sat_current
+            sx_sat_prev = sx_sat_current
+            sx_filter_changes[period + idle_start_length] = sx_filter_changes[period + idle_start_length - 1]
+        else:
+            sx_sat[period + idle_start_length] = 0
+            sx_sat_prev = 0
+            sx_filter_changes[period + idle_start_length] = sx_filter_changes[period + idle_start_length - 1] + 1
 
 graph_margin = dict(b=60, l=20, r=20, t=60)
 
@@ -322,13 +347,28 @@ def update1(n_intervals):
                               width=100)
     fig_lvl_r1_3.update_xaxes(showticklabels=False)
     fig_lvl_r1_3.update_yaxes(tickmode="array", tickvals=[round(r3_saturation)])
-
+    
+    r1_changeover_tally = r1_changovers[n_intervals + idle_start_length]
+    sx_changeovers = sx_filter_changes[n_intervals + idle_start_length]
+    
+    sx_saturation = sx_sat[n_intervals + idle_start_length]
+    sx_available = 100 - sx_saturation
+    fig_sx_sat = go.Figure(data=[go.Bar(x=[1], y=[sx_saturation], marker_color="yellow"),
+                                  go.Bar(x=[1], y=[sx_available],  marker_color="silver")])
+    fig_sx_sat.update_layout(title_text="", title_x=0.5, title_y=0.96,
+                              barmode='stack', paper_bgcolor="rgba(0,0,0,0)",
+                              plot_bgcolor='rgba(0, 0, 0, 0)', showlegend=False,
+                              margin=dict(l=20, r=20, t=20, b=20), height=150,
+                              width=100)
+    fig_sx_sat.update_xaxes(showticklabels=False)
+    fig_sx_sat.update_yaxes(tickmode="array", tickvals=[round(sx_saturation)])
 
     return (r1_updates, r2_updates, r1_rxn_updates, r2_rxn_updates, e_allocation,
-            round(kw_to_battery,2), time.strftime("%d-%m-%Y %H:%M:%S"), fig_bat_lvl,
+            round(kw_to_battery,2), time.strftime("%d-%m-%Y %H:%M"), fig_bat_lvl,# time.strftime("%d-%m-%Y %H:%M:%S"),
             round(kw_gen,2), round(r1_e[n_intervals + idle_start_length],2),
             round(r2_e[n_intervals + idle_start_length],2),"X.XX", 
-            fig_lvl_r1_1, fig_lvl_r1_2, fig_lvl_r1_3)
+            fig_lvl_r1_1, fig_lvl_r1_2, fig_lvl_r1_3, r1_changeover_tally, 
+            sx_changeovers, fig_sx_sat)
 
 #update function for r1 reactor saturations
 
