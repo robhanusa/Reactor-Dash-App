@@ -7,12 +7,10 @@ Created on Wed May 17 09:30:04 2023
 import numpy as np
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
-import plotly.express as px
 from weather_energy_components import data_length
 from plant_components import Battery, Reactor1, Reactor2
 from weather_energy_components import Hourly_state, distribute_energy, battery_max
 import math
-
 
 #periods per hour. Reactor states will be calculated "pph" times per hour. eg
 #if pph = 10, states are calculated every 1hr/10 = 6 min. This is necessary because 
@@ -22,13 +20,13 @@ pph = 10
 #step duration for each change of energy allocation
 alloc_step = 10
 
-#how fast r1 gets saturated per kg COS produced
+#how fast r1 gets saturated per mol COS produced
 r1_sat_factor = 5
 
 r1_clean_speed = 10
 
 #Sx filter saturation speed
-sx_sat_factor = .4
+sx_sat_factor = 3
 
 #length of graphs' x axes.
 idle_start_length = 500
@@ -52,8 +50,9 @@ sx_filter_changes = np.zeros(num_periods + idle_start_length)
 r1_changovers = np.zeros(num_periods + idle_start_length)
 
 #temp
-r11state = ["0"]*(num_periods + idle_start_length)
-
+r1_1_state = ["idle"]*(num_periods + idle_start_length)
+r1_2_state = ["idle"]*(num_periods + idle_start_length)
+r1_3_state = ["idle"]*(num_periods + idle_start_length)
 
 r1_prev = 0 
 r2_prev = 0 
@@ -63,12 +62,6 @@ reactor1_2 = Reactor1()
 reactor1_1.state = "active"
 reactor2 = Reactor2()
 battery = Battery(50)
-
-
-# def react_r1(r1, r1_e_current, r1_prev):
-#     r1.react(r1_e_current, r1_prev)
-    
-    
 
 #calculate conditions at each hourly state
 for hour in range(data_length):
@@ -115,7 +108,8 @@ for hour in range(data_length):
             else:
                 r1_changovers[period + idle_start_length] = r1_changovers[period + idle_start_length - 1]
         
-        r11state[period + idle_start_length] == reactor1_1.state
+        r1_1_state[period + idle_start_length] = reactor1_1.state
+        r1_2_state[period + idle_start_length] = reactor1_2.state
         
         r1_cos_out[period + idle_start_length] = r1_cos_current
         r1_e[period + idle_start_length] = r1_e_current
@@ -161,7 +155,7 @@ fig_r1.add_trace(go.Scatter(x=[], y=[], mode= "lines", name="Energy input",
                        row=1, col=1, secondary_y=True)
 fig_r1.update_xaxes(title_text="Minutes before present", range=[-500,0],
                           row=1, col=1)
-fig_r1.update_yaxes(title_text="Kg COS per hour", range=[0,1], 
+fig_r1.update_yaxes(title_text="mol COS per hour", range=[0,1], 
                     secondary_y=False, row=1, col=1)
 fig_r1.update_yaxes(title_text="kW", range=[0,6], 
                     secondary_y=True, row=1, col=1)
@@ -181,7 +175,7 @@ fig_r2.add_trace(go.Scatter(x=[], y=[], mode= "lines", name="Energy input",
                      row=1, col=1, secondary_y=True)
 fig_r2.update_xaxes(title_text="Minutes before present", range=[-500,0],
                           row=1, col=1)
-fig_r2.update_yaxes(title_text="Kg Sx per hour", range=[0,1], 
+fig_r2.update_yaxes(title_text="mol Sx per hour", range=[0,1], 
                     secondary_y=False, row=1, col=1)
 fig_r2.update_yaxes(title_text="kW", range=[0,20], 
                     secondary_y=True, row=1, col=1)
@@ -200,7 +194,7 @@ fig_r1_rxn.add_trace(go.Scatter(x=[], y=[], mode= "lines",
 fig_r1_rxn.add_trace(go.Scatter(x=[], y=[], marker=dict(color="red", size=20),
                                 mode="markers", name="Current state"), row=1, col=1)
 fig_r1_rxn.update_xaxes(title_text="kW", range=[0,10],row=1, col=1)
-fig_r1_rxn.update_yaxes(title_text="Kg COS per hour", range=[0,1.6],row=1, col=1)
+fig_r1_rxn.update_yaxes(title_text="mol COS per hour", range=[0,1.6],row=1, col=1)
 fig_r1_rxn.update_layout(title_text="Steady state COS output versus energy", title_x=0.5,
                          title=dict(yref="paper", y=1, yanchor="bottom", pad=dict(b=20)),
                          legend=dict(yanchor="bottom", xanchor="right", y=0.02, x=0.99),
@@ -216,7 +210,7 @@ fig_r2_rxn.add_trace(go.Scatter(x=[], y=[], mode= "lines",
 fig_r2_rxn.add_trace(go.Scatter(x=[], y=[], marker=dict(color="red", size=20),
                                 mode="markers", name="Current state"), row=1, col=1)
 fig_r2_rxn.update_xaxes(title_text="kW", range=[0,16], row=1, col=1)
-fig_r2_rxn.update_yaxes(title_text="Kg Sx per hour", range=[0,1.1], row=1, col=1)
+fig_r2_rxn.update_yaxes(title_text="mol Sx per hour", range=[0,1.1], row=1, col=1)
 fig_r2_rxn.update_layout(title_text="Steady state Sx output versus energy", title_x=0.5,
                          title=dict(yref="paper", y=1, yanchor="bottom", pad=dict(b=20)),
                          legend=dict(yanchor="bottom", xanchor="right", y=0.02, x=0.99),
@@ -311,6 +305,28 @@ def update1(n_intervals):
                               width=150)
     fig_bat_lvl.update_xaxes(showticklabels=False)
     fig_bat_lvl.update_yaxes(tickmode="array", tickvals=[round(bat_lvl_full)])
+    
+    if kw_to_battery > 0:
+        img_energy_flow = "assets/en_from_wind_to_bat_plant.png"
+    elif kw_gen == 0:
+        img_energy_flow = "assets/en_from_bat.png"
+    else:
+        img_energy_flow = "assets/en_from_bat_and_wind.png"
+        
+    if r1_1_state[n_intervals + idle_start_length] == "active" and \
+        r1_2_state[n_intervals + idle_start_length] == "idle":
+            img_r1_status = "assets/1active_2idle_3idle.png"
+    elif r1_1_state[n_intervals + idle_start_length] == "active" and \
+        r1_2_state[n_intervals + idle_start_length] == "cleaning":
+            img_r1_status = "assets/1active_2cleaning_3idle.png"
+    elif r1_1_state[n_intervals + idle_start_length] == "cleaning" and \
+        r1_2_state[n_intervals + idle_start_length] == "active":
+            img_r1_status = "assets/1cleaning_2active_3idle.png"
+    elif r1_1_state[n_intervals + idle_start_length] == "idle" and \
+        r1_2_state[n_intervals + idle_start_length] == "active":
+            img_r1_status = "assets/1idle_2active_3idle.png"
+    else:
+        img_r1_status = "assets/1idle_2idle_3idle.png"
 
     r1_saturation = r_1_1_sat[n_intervals + idle_start_length]
     r1_available = 100 - r1_saturation
@@ -364,38 +380,9 @@ def update1(n_intervals):
     fig_sx_sat.update_yaxes(tickmode="array", tickvals=[round(sx_saturation)])
 
     return (r1_updates, r2_updates, r1_rxn_updates, r2_rxn_updates, e_allocation,
-            round(kw_to_battery,2), time.strftime("%d-%m-%Y %H:%M"), fig_bat_lvl,# time.strftime("%d-%m-%Y %H:%M:%S"),
+            round(kw_to_battery,2), time.strftime("%d-%m-%Y %H:%M"), fig_bat_lvl,
+            img_energy_flow,
             round(kw_gen,2), round(r1_e[n_intervals + idle_start_length],2),
-            round(r2_e[n_intervals + idle_start_length],2),"X.XX", 
+            round(r2_e[n_intervals + idle_start_length],2),"X.XX", img_r1_status,
             fig_lvl_r1_1, fig_lvl_r1_2, fig_lvl_r1_3, r1_changeover_tally, 
             sx_changeovers, fig_sx_sat)
-
-#update function for r1 reactor saturations
-
-# def update_r1s(n_intervals):
-#     r1_saturation = r_1_1_sat[n_intervals + idle_start_length]
-#     r1_available = 100 - r1_saturation
-#     fig_lvl_r1_1 = go.Figure(data=[go.Bar(x=[1], y=[r1_saturation], marker_color="aqua"),
-#                                   go.Bar(x=[1], y=[r1_available],  marker_color="silver")])
-#     fig_lvl_r1_1.update_layout(title_text="", title_x=0.5, title_y=0.96,
-#                               barmode='stack', paper_bgcolor="rgba(0,0,0,0)",
-#                               plot_bgcolor='rgba(0, 0, 0, 0)', showlegend=False,
-#                               margin=dict(l=20, r=20, t=20, b=20), height=150,
-#                               width=100)
-#     fig_lvl_r1_1.update_xaxes(showticklabels=False)
-#     fig_lvl_r1_1.update_yaxes(tickmode="array", tickvals=[round(r1_saturation)])
-    
-#     r2_saturation = r_1_2_sat[n_intervals + idle_start_length]
-#     r2_available = 100 - r2_saturation
-#     fig_lvl_r1_2 = go.Figure(data=[go.Bar(x=[1], y=[r2_saturation], marker_color="aqua"),
-#                                   go.Bar(x=[1], y=[r2_available],  marker_color="silver")])
-#     fig_lvl_r1_2.update_layout(title_text="", title_x=0.5, title_y=0.96,
-#                               barmode='stack', paper_bgcolor="rgba(0,0,0,0)",
-#                               plot_bgcolor='rgba(0, 0, 0, 0)', showlegend=False,
-#                               margin=dict(l=20, r=20, t=20, b=20), height=150,
-#                               width=100)
-#     fig_lvl_r1_2.update_xaxes(showticklabels=False)
-#     fig_lvl_r1_2.update_yaxes(tickmode="array", tickvals=[round(r2_saturation)])
-    
-    
-#     return fig_lvl_r1_1, fig_lvl_r1_2

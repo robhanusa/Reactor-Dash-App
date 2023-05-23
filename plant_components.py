@@ -12,11 +12,6 @@ class Battery:
     def __init__(self,charge):
         self.charge = charge
         self.efficiency = 0.9 #note this might be a function of charge etc, so not a simple constant
-        
-# class MetaReactor1(type):
-#     @property
-#     def saturation(cls):
-#         return cls.saturation
     
 class Reactor1():
     ku = .1 
@@ -27,20 +22,6 @@ class Reactor1():
         self.state = "idle"
         self.saturation = 0
         
-    # @property
-    # def saturation(self):
-    #     return type(self).saturation
-        
-    # def _get_saturation(self):
-    #     return self._saturation
-    
-    # def _set_saturation(self, value):
-    #     self._saturation = value
-        
-    # radius = property(
-    #     fget = _get_saturation,
-    #     fset = _set_saturation)
-
     @classmethod
     def ss_output(cls, energy):
         return 2/(1 + math.exp(-energy + 1))-0.54
