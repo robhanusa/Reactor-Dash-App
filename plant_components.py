@@ -6,17 +6,22 @@ Created on Wed May 17 07:44:15 2023
 """
 import math
 
+# periods per hour. Reactor states will be calculated "pph" times per hour. eg
+# if pph = 10, states are calculated every 1hr/10 = 6 min. This is necessary because 
+# the weather data hourly, but plant state is calculated more frequently
+pph = 4
+
 r1_cleaning_speed = 0.1
 
 class Battery:
     def __init__(self,charge):
         self.charge = charge
-        self.efficiency = 0.9 #note this might be a function of charge etc, so not a simple constant
+        self.efficiency = 0.9 
     
 class Reactor1():
-    ku = .1 
-    kd = .2
-    #saturation = 0
+    ku = 1/pph
+    kd = 1/pph
+
     
     def __init__(self):
         self.state = "idle"
@@ -27,7 +32,6 @@ class Reactor1():
         return 2/(1 + math.exp(-energy + 1))-0.54
     
     def add_water(cos_produced):
-        # Reactor1.saturation += cos_produced/1000
         Reactor1.state = "active"
     
     def react(cls, energy, prev):
@@ -57,8 +61,8 @@ class Reactor1():
             Reactor1.state == "cleaning"
             
 class Reactor2: 
-    ku = .1 
-    kd = .2 
+    ku = 1/pph
+    kd = 1/pph
     
     def __init__(self):
         self.state = "idle"
