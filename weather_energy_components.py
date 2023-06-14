@@ -16,10 +16,6 @@ wt_rated_speed = 50 # km/h
 wt_cut_out = 100 # km/h
 wt_max_energy = 5 # kw
 data_length = 200
-r1_max = 1
-r1_min = 0.05
-r2_max = 4
-r2_min = 1
 battery_max = 100
 
 cols = ["time","windspeed_100m (km/h)","shortwave_radiation (W/m²)"]
@@ -56,27 +52,3 @@ class Hourly_state:
         self.solar = df_weather["shortwave_radiation (W/m²)"][hour] #W/m2
         self.solar_energy = calc_solar_energy(self.solar) #kW
         self.solar_power = self.solar_energy*pph #kWh
-        
-        
-# need to adjust this so that the COS produced = COS consumed
-# now this is only a theoretical process control logic
-def distribute_energy(energy_generated, energy_stored, prev10_r1, prev10_r2): 
-    if len(set(prev10_r1)) > 1:
-        to_r1 = prev10_r1[-1]
-        to_r2 = prev10_r2[-1]
-    elif energy_stored + energy_generated < r2_min + r1_min or energy_stored/battery_max < 0.10:
-        to_r1 = 0
-        to_r2 = 0
-    elif energy_stored/battery_max < 0.30:
-        to_r1 = 0.5
-        to_r2 = 1
-    elif energy_stored/battery_max < 0.50:
-        to_r1 = .7
-        to_r2 = 2
-    else:
-        to_r1 = r1_max
-        to_r2 = r2_max
-        
-    to_battery = energy_generated - to_r1 - to_r2
-
-    return to_r1, to_r2, to_battery

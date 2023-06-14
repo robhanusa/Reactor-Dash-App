@@ -16,13 +16,15 @@ r1_cleaning_speed = 0.1
 class Battery:
     def __init__(self,charge):
         self.charge = charge
+        
+        #Note that battery efficiency (below) is normally dependent on charge. 
+        #For a more accurate model, I should account for this
         self.efficiency = 0.9 
     
 class Reactor1():
     ku = 1/pph
     kd = 1/pph
 
-    
     def __init__(self):
         self.state = "idle"
         self.saturation = 0

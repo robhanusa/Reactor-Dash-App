@@ -58,8 +58,8 @@ app.layout = dbc.Container([
                                   "text-decoration-line":"underline",
                                   "font-weight":"bold"}), 
                  html.Span("kW")],
-                width=3)]
-            ), 
+                width=3)
+        ]), 
     dbc.Row(
         
         # 3 arrow image
@@ -101,7 +101,8 @@ app.layout = dbc.Container([
         dbc.Col([html.Br(),
                  html.Img(src=app.get_asset_url("S_reactor_to_filter.png"),
                           width = "750em")], 
-                width=8)]), 
+                width=8)
+        ]), 
     dbc.Row([
         
         # Text "Saturation"
@@ -117,7 +118,8 @@ app.layout = dbc.Container([
                  html.Div("Saturation", 
                           style={"font-size":"24px",
                                  "padding-left":"107px"})], 
-                width=3)]),
+                width=3)
+        ]),
     dbc.Row([
         dbc.Col(dcc.Graph(id="fig_lvl_r1_1"), width=1), #Saturation of 1st R1
         dbc.Col(dcc.Graph(id="fig_lvl_r1_2"), width=1), #Saturation of 2nd R1
@@ -141,7 +143,8 @@ app.layout = dbc.Container([
         
         #Saturation of sulfur screen in a bar graph
         dbc.Col(dcc.Graph(id="fig_sx_sat"), width=1), 
-        dbc.Col(html.Br(), width=1)]), 
+        dbc.Col(html.Br(), width=1)
+        ]), 
     dbc.Row([
         dbc.Col(dcc.Graph(id="energy_allocation_graph", 
                           figure=dc.fig_e_allo))]),
@@ -151,20 +154,22 @@ app.layout = dbc.Container([
                  width=6),
         dbc.Col(dcc.Graph(id="reactor2_output_graph", 
                           figure=dc.fig_r2), 
-                width=6)]),
+                width=6)
+        ]),
     dbc.Row([
         dbc.Col(dcc.Graph(id="r1_rxn_graph", 
                           figure=dc.fig_r1_rxn), 
                 width=6),
         dbc.Col(dcc.Graph(id="r2_rxn_graph", 
                           figure=dc.fig_r2_rxn), 
-                width=6)]),
+                width=6)
+        ]),
     
     dcc.Interval(id="interval",interval=300, 
                   n_intervals=0, max_intervals=len(dc.r2_sx_out)-501)
     ])
 
-# Callback funct: combining all outputs into one callback helps with performance
+# Callback func: combining all outputs into one callback helps with performance
 @app.callback(Output(component_id='kw_to_battery', component_property='children'),
               Output(component_id='time', component_property='children'),
               Output(component_id='bat_lvl_graph', component_property='figure'),
