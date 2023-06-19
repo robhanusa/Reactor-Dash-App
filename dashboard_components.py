@@ -93,8 +93,8 @@ def distribute_energy(period):
 
     return to_r1, to_r2, to_battery
 
-def battery_charge_differential(period):
-    return e_to_battery * battery.efficiency / pph
+def battery_charge_differential(e_to_battery):
+    return e_to_battery * battery.efficiency / pph if e_to_battery > 0 else e_to_battery / pph
 
 def update_reactor_1(period, r1_prev):
     if reactor1_1.state == "active":
@@ -170,7 +170,7 @@ for hour in range(data_length):
         r1_e_current, r2_e_current, e_to_battery = distribute_energy(period)
         
         # Update battery charge
-        battery.charge += e_to_battery * battery.efficiency / pph 
+        battery.charge += battery_charge_differential(e_to_battery)
         
         # Update arrays for battery charge, energy consumed by plant, 
         # and energy directed to battery

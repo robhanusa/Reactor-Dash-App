@@ -16,7 +16,7 @@ wt_rated_speed = 50 # km/h
 wt_cut_out = 100 # km/h
 wt_max_energy = 5 # kw
 data_length = 200
-battery_max = 100
+battery_max = 100 #kwh
 
 cols = ["time","windspeed_100m (km/h)","shortwave_radiation (W/m²)"]
 
