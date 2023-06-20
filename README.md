@@ -48,7 +48,7 @@ The model takes real historical weather data in hourly intervals as input. The e
 from the sun and wind is calculated by equations (1) and (2) respectively, and the total 
 renewable energy generation is the sum of these, as shown in equation (3).  
 
-$$e_{sp,t} = \dfrac{c_{sp} \times a_{sp} \times e_{sr,t}}{1000}\$$ 
+$$e_{sp,t} = \dfrac{c_{sp} \cdot a_{sp} \cdot e_{sr,t}}{1000}\$$ 
 <div dir="rtl">(1)</div>
 
 $$
@@ -130,8 +130,8 @@ $$
 b_t=
 \begin{cases}
 \begin{array}{ll}
-b_{t-1}+c_b\times d_t^b & \text{if } d_t^b \geq 0 \\
-b_{t-1}\times d_t^b & \text{if } d_t^b < 0
+b_{t-1}+c_b\cdot d_t^b & \text{if } d_t^b \geq 0 \\
+b_{t-1}\cdot d_t^b & \text{if } d_t^b < 0
 \end{array}
 \end{cases}
 \$$
@@ -224,7 +224,7 @@ $$
 s_{r1,i,t}=
 \begin{cases}
 \begin{array}{ll}
-s_{r1,i,t-1}+c_{r1\mbox{-}sat}\times p_{r1,t} & \quad \text{if } state_{r1,i,t}=\text{"active"} \\
+s_{r1,i,t-1}+c_{r1\mbox{-}sat}\cdot p_{r1,t} & \quad \text{if } state_{r1,i,t}=\text{"active"} \\
 s_{r1,i,t-1}-cl & \quad \text{if } state_{r1,i,t}=\text{"cleaning"} \\
 0 & \quad \text{if } state_{r1,i,t}=\text{"idle"}
 \end{array}
@@ -297,8 +297,8 @@ $$
 p_{r,t}=
 \begin{cases}
 \begin{array}{ll}
-p_{r,t-1}+k_r^u\times\varepsilon_{r,t} & \quad \text{if } \varepsilon_{r,t}\geq 0 \\
-p_{r,t-1}+k_r^d\times\varepsilon_{r,t} & \quad \text{if } \varepsilon_{r,t}<0
+p_{r,t-1}+k_r^u\cdot\varepsilon_{r,t} & \quad \text{if } \varepsilon_{r,t}\geq 0 \\
+p_{r,t-1}+k_r^d\cdot\varepsilon_{r,t} & \quad \text{if } \varepsilon_{r,t}<0
 \end{array}
 \end{cases}
 \$$
@@ -334,8 +334,8 @@ $$
 s_{sf,t}=
 \begin{cases}
 \begin{array}{ll}
-s_{sf,t-1}+c_{sf\mbox{-}sat}\times p_{r2,t} & \quad \text{if } s_{sf,t-1}+c_{sf\mbox{-}sat}\times p_{r2,t}\leq100 \\
-c_{sf\mbox{-}sat}\times p_{r2,t} & \quad \text{if } s_{sf,t-1}+c_{sf\mbox{-}sat}\times p_{r2,t}>100
+s_{sf,t-1}+c_{sf\mbox{-}sat}\cdot p_{r2,t} & \quad \text{if } s_{sf,t-1}+c_{sf\mbox{-}sat}\cdot p_{r2,t}\leq100 \\
+c_{sf\mbox{-}sat}\cdot p_{r2,t} & \quad \text{if } s_{sf,t-1}+c_{sf\mbox{-}sat}\cdot p_{r2,t}>100
 \end{array}
 \end{cases}
 \$$
@@ -348,7 +348,7 @@ Where:
   
 
 The equation is set up in such a way so as to never allow the filter to surpass 100 saturation. 
-If it the added sulfur ($c_{sf\mbox{-}sat}\times p_{r2,t}$) would cause the total saturation to
+If it the added sulfur ($c_{sf\mbox{-}sat}\cdot p_{r2,t}$) would cause the total saturation to
 surpass 100 when added to the previous saturation level, $s_{sf,t-1}$ is taken to
-be 0 and the next saturation value is effectively $0+c_{sf\mbox{-}sat}\times p_{r2,t}$.
+be 0 and the next saturation value is effectively $0+c_{sf\mbox{-}sat}\cdot p_{r2,t}$.
 
