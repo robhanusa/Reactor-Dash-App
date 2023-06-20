@@ -149,19 +149,11 @@ app.layout = dbc.Container([
         dbc.Col(dcc.Graph(id="energy_allocation_graph", 
                           figure=dc.fig_e_allo))]),
     dbc.Row([
-        dbc.Col(dcc.Graph(id="reactor1_output_graph", 
-                           figure=dc.fig_r1), 
-                 width=6),
-        dbc.Col(dcc.Graph(id="reactor2_output_graph", 
-                          figure=dc.fig_r2), 
-                width=6)
-        ]),
-    dbc.Row([
-        dbc.Col(dcc.Graph(id="r1_rxn_graph", 
-                          figure=dc.fig_r1_rxn), 
-                width=6),
         dbc.Col(dcc.Graph(id="r2_rxn_graph", 
                           figure=dc.fig_r2_rxn), 
+                width=6),
+        dbc.Col(dcc.Graph(id="reactor2_output_graph", 
+                          figure=dc.fig_r2), 
                 width=6)
         ]),
     
@@ -186,9 +178,7 @@ app.layout = dbc.Container([
               Output(component_id='sx_changeovers', component_property='children'),
               Output(component_id='fig_sx_sat', component_property='figure'),
               Output(component_id='energy_allocation_graph', component_property='extendData'),
-              Output(component_id='reactor1_output_graph', component_property='extendData'),
               Output(component_id='reactor2_output_graph', component_property='extendData'),
-              Output(component_id='r1_rxn_graph', component_property='extendData'),
               Output(component_id='r2_rxn_graph', component_property='extendData'),
               Input(component_id='interval', component_property='n_intervals'))
 

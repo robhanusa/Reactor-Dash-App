@@ -30,10 +30,10 @@ num_periods = data_length*pph + idle_start_length
 # Create arrays to store all calculated data that will be displayed.
 # This helps minimize the calculations occuring in the callback function and
 # lets the dashboard update more smoothly
-r1_cos_out = np.zeros(num_periods)
 r2_sx_out = np.zeros(num_periods)
 r1_e = np.zeros(num_periods)
 r2_e = np.zeros(num_periods)
+condenser_e = np.zeros(num_periods)
 generated_kw = np.zeros(num_periods)
 consumed_kw = np.zeros(num_periods)
 battery_charge = [50]*(num_periods)
@@ -49,7 +49,6 @@ r1_2_state = ["idle"]*(num_periods)
 r1_3_state = ["idle"]*(num_periods)
 
 # Initiate necessary variables
-r1_prev = 0 
 r2_prev = 0 
 sx_sat_prev = 0
 reactor1_1 = Reactor1()
@@ -62,43 +61,54 @@ battery = Battery(50)
 def calc_generated_kw():
     return state.wind_power/pph + state.solar_power/pph
 
+def allocate_e_to_condenser(to_r2):
+    condenser_constant = 0.5
+    r2_sx_ss = reactor2.ss_output(to_r2)
+    to_condenser = condenser_constant * r2_sx_ss
+    return to_condenser
+
 # Need to adjust so COS produced = COS consumed
 def distribute_energy(period):
     energy_generated = generated_kw[period]
     energy_stored = battery.charge
-    r1_max = 1
-    r1_min = 0.05
+    r1_max = 0.7
+    r1_min = 0.7
     r2_max = 4
     r2_min = 1
     
     # Check if there has already been a change in energy distribution in the last
     # hour. If so, don't change current distribution.
-    if len(set(r1_e[period - pph : period])) > 1:
+    if len(set(r2_e[period - pph : period])) > 1:
         to_r1 = r1_e[period-1]
         to_r2 = r2_e[period-1]
+        to_condenser = condenser_e[period-1]
     elif energy_stored + energy_generated < r2_min + r1_min or energy_stored/battery_max < 0.10:
         to_r1 = 0
         to_r2 = 0
+        to_condenser = 0
     elif energy_stored/battery_max < 0.30:
-        to_r1 = 0.5
-        to_r2 = 1
+        to_r1 = r1_max
+        to_r2 = r2_min
+        to_condenser = allocate_e_to_condenser(to_r2)
     elif energy_stored/battery_max < 0.50:
-        to_r1 = .7
+        to_r1 = r1_max
         to_r2 = 2
+        to_condenser = allocate_e_to_condenser(to_r2)
     else:
         to_r1 = r1_max
         to_r2 = r2_max
+        to_condenser = allocate_e_to_condenser(to_r2)
         
-    to_battery = energy_generated - to_r1 - to_r2
+    to_battery = energy_generated - to_r1 - to_r2 - to_condenser
 
-    return to_r1, to_r2, to_battery
+    return to_r1, to_r2, to_condenser, to_battery
 
 def battery_charge_differential(e_to_battery):
     return e_to_battery * battery.efficiency / pph if e_to_battery > 0 else e_to_battery / pph
 
-def update_reactor_1(period, r1_prev):
+def update_reactor_1(period, r2_sx_current):
     if reactor1_1.state == "active":
-        r1_cos_current = reactor1_1.react(r1_e_current, r1_prev) 
+        r1_cos_current = reactor1_1.react(r2_sx_current) 
         reactor1_1.saturation += r1_cos_current / pph * r1_sat_factor
         if reactor1_1.saturation >= 100:
             reactor1_1.saturation -= r1_cos_current / pph * r1_sat_factor
@@ -109,7 +119,7 @@ def update_reactor_1(period, r1_prev):
             r1_changovers[period] = r1_changovers[period - 1]
             
     elif reactor1_2.state == "active":
-        r1_cos_current = reactor1_2.react(r1_e_current, r1_prev) 
+        r1_cos_current = reactor1_2.react(r2_sx_current) 
         reactor1_2.saturation += r1_cos_current/pph*r1_sat_factor
         if reactor1_2.saturation >= 100:
             reactor1_2.saturation -= r1_cos_current/pph*r1_sat_factor
@@ -124,9 +134,8 @@ def update_reactor_1(period, r1_prev):
     r1_2_state[period] = reactor1_2.state
     
     # Update arrays for r1 
-    r1_cos_out[period] = r1_cos_current
     r1_e[period] = r1_e_current
-    r1_prev = r1_cos_current
+
     # Switch state from 'cleaning' to 'idle' when reactor is clean
     if reactor1_2.state == "cleaning":
         reactor1_2.saturation = max(0, reactor1_2.saturation - r1_clean_speed/pph)
@@ -138,8 +147,6 @@ def update_reactor_1(period, r1_prev):
     
     r_1_1_sat[period] = reactor1_1.saturation
     r_1_2_sat[period] = reactor1_2.saturation
-            
-    return r1_prev
 
 # Update Sx filter saturation and tally filter changes
 def update_sx_filter(period, sx_sat_prev):
@@ -167,7 +174,7 @@ for hour in range(data_length):
         generated_kw[period] = calc_generated_kw()
         
         # Energy distribution for current period
-        r1_e_current, r2_e_current, e_to_battery = distribute_energy(period)
+        r1_e_current, r2_e_current, to_condenser, e_to_battery = distribute_energy(period)
         
         # Update battery charge
         battery.charge += battery_charge_differential(e_to_battery)
@@ -178,14 +185,17 @@ for hour in range(data_length):
         consumed_kw[period] = r1_e_current + r2_e_current
         kw_to_battery_arr[period] = e_to_battery
         
-        # Calculate reactor 1 states and tally changeovers
-        r1_prev = update_reactor_1(period, r1_prev)
+        # Update array for condenser energy
+        condenser_e[period] = to_condenser
         
         # Calculate reactor 2 state
         r2_sx_current = reactor2.react(r2_e_current, r2_prev)
         r2_sx_out[period] = r2_sx_current
         r2_e[period] = r2_e_current
         r2_prev = r2_sx_current
+        
+        # Calculate reactor 1 states and tally changeovers
+        update_reactor_1(period, r2_sx_current)
         
         # Update Sx filter saturation and tally filter changes
         sx_sat_prev = update_sx_filter(period, sx_sat_prev)
@@ -220,26 +230,6 @@ fig_e_allo.update_layout(title_text="Energy Allocation", title_x=0.5,
                                      x=0.01),
                          margin=graph_margin)
 
-# Reactor 1 output figure
-fig_r1 = make_subplots(rows=1, cols=1, specs=[[dict(secondary_y= True)]])
-fig_r1.add_trace(go.Scatter(x=[], y=[], mode= "lines", name="COS produced"),
-                 row=1, col=1, secondary_y=False)
-fig_r1.add_trace(go.Scatter(x=[], y=[], mode= "lines", name="Energy input"),
-                 row=1, col=1, secondary_y=True)
-fig_r1.update_xaxes(title_text="Minutes before present", range=[-500,0],
-                          row=1, col=1)
-fig_r1.update_yaxes(title_text="mol COS per hour", range=[0,1], 
-                    secondary_y=False, row=1, col=1)
-fig_r1.update_yaxes(title_text="kW", range=[0,6], 
-                    secondary_y=True, row=1, col=1)
-fig_r1.update_layout(title_text="H2S + CO2 => COS + H2O", title_x=0.5,
-                     title=dict(yref="paper",
-                                y=1, 
-                                yanchor="bottom", 
-                                pad=dict(b=20)),
-                     legend=dict(yanchor="top", xanchor="left", y=0.99, x=0.01),
-                     margin=graph_margin)
-
 # Reactor 2 output figure
 fig_r2 = make_subplots(rows=1,cols=1, specs=[[dict(secondary_y= True)]])
 fig_r2.add_trace(go.Scatter(x=[], y=[], mode= "lines", name="Sx produced"),
@@ -252,39 +242,13 @@ fig_r2.update_yaxes(title_text="mol Sx per hour", range=[0,1],
                     secondary_y=False, row=1, col=1)
 fig_r2.update_yaxes(title_text="kW", range=[0,20], 
                     secondary_y=True, row=1, col=1)
-fig_r2.update_layout(title_text="COS => CO + Sx", title_x=0.5,
+fig_r2.update_layout(title_text="Sx production over time", title_x=0.5,
                      title=dict(yref="paper", 
                                 y=1, 
                                 yanchor="bottom", 
                                 pad=dict(b=20)),
                      legend=dict(yanchor="top", xanchor="left", y=0.99, x=0.01),
                      margin=graph_margin)
-
-# Reactor 1 reaction curve figure
-r1_rxn_curve_x = np.linspace(0,10,20)
-r1_rxn_curve_y= [reactor1_1.ss_output(i) for i in r1_rxn_curve_x]
-
-fig_r1_rxn = make_subplots(rows=1, cols=1)
-fig_r1_rxn.add_trace(go.Scatter(x=[], y=[], mode= "lines", 
-                                name="R1 reaction curve"), 
-                     row=1, col=1)
-fig_r1_rxn.add_trace(go.Scatter(x=[], y=[], marker=dict(color="red", size=20),
-                                mode="markers", name="Current state"), 
-                     row=1, col=1)
-fig_r1_rxn.update_xaxes(title_text="kW", range=[0,10],row=1, col=1)
-fig_r1_rxn.update_yaxes(title_text="mol COS per hour", range=[0,1.6],
-                        row=1, col=1)
-fig_r1_rxn.update_layout(title_text="Steady state COS output versus energy", 
-                         title_x=0.5,
-                         title=dict(yref="paper", 
-                                    y=1, 
-                                    yanchor="bottom", 
-                                    pad=dict(b=20)),
-                         legend=dict(yanchor="bottom", 
-                                     xanchor="right", 
-                                     y=0.02, 
-                                     x=0.99),
-                         margin=graph_margin)
 
 # Reactor 2 reaction curve figure
 r2_rxn_curve_x = np.linspace(0,16,20)
@@ -449,17 +413,6 @@ def update(n_intervals):
             idle_start_length + 1, 
             idle_start_length + 1, idle_start_length + 1]
     
-    r1_updates = [
-        dict(x=[x, x], 
-             y=[
-                 [r1_cos_out[i] for i in range(n_intervals,period + 1)],
-                 [r1_e[i] for i in range(n_intervals,period + 1)]
-               ]
-             ),
-            [0,1], 
-            idle_start_length + 1, 
-            idle_start_length + 1]
-    
     r2_updates = [
         dict(x=[x, x], 
              y=[
@@ -470,17 +423,7 @@ def update(n_intervals):
             [0,1], 
             idle_start_length + 1, 
             idle_start_length + 1] 
-    
-    r1_rxn_updates = [
-        dict(x=[r1_rxn_curve_x, [r1_e[period]]*20], 
-             y=[
-                 r1_rxn_curve_y,
-                 [reactor1_1.ss_output(r1_e[period])]*20
-               ]
-             ),
-            [0,1], 
-            20, 
-            1]
+
     
     r2_rxn_updates = [
             dict(x=[r2_rxn_curve_x, [r2_e[period]]*20], 
@@ -493,9 +436,9 @@ def update(n_intervals):
                 20, 
                 1]
 
-    return (round(kw_to_battery,2), time.strftime("%d-%m-%Y %H:%M"), 
-            fig_bat_lvl, img_energy_flow, round(kw_gen,2), 
-            round(r1_e[period],2), round(r2_e[period],2),"X.XX", img_r1_status,
+    return (round(kw_to_battery,1), time.strftime("%d-%m-%Y %H:%M"), 
+            fig_bat_lvl, img_energy_flow, round(kw_gen,1), round(r1_e[period],2), 
+            round(r2_e[period],2),round(condenser_e[period],2), img_r1_status,
             fig_lvl_r1_1, fig_lvl_r1_2, fig_lvl_r1_3, r1_changeover_tally, 
-            sx_changeovers, fig_sx_sat, e_allocation, r1_updates, r2_updates, 
-            r1_rxn_updates, r2_rxn_updates)
+            sx_changeovers, fig_sx_sat, e_allocation, r2_updates,
+            r2_rxn_updates)

@@ -22,35 +22,38 @@ class Battery:
         self.efficiency = 0.9 
     
 class Reactor1():
-    ku = 1/pph
-    kd = 1/pph
+    # ku = 1/pph
+    # kd = 1/pph
 
     def __init__(self):
         self.state = "idle"
         self.saturation = 0
         
     @classmethod
+    
+    #need to do something about the ss graph for r1. No longer logical
     def ss_output(cls, energy):
         return 2/(1 + math.exp(-energy + 1))-0.54
     
     def add_water(cos_produced):
         Reactor1.state = "active"
     
-    def react(cls, energy, prev):
+    def react(cls, sx_produced):
+        cos_produced = sx_produced
         Reactor1.state = "active"
-        e_t = Reactor1.ss_output(energy)-prev
-        if e_t > 0:
-            cos_produced = prev + Reactor1.ku*e_t
-        else:
-            cos_produced = prev + Reactor1.kd*e_t
-        Reactor1.add_water(cos_produced)
+        # e_t = Reactor1.ss_output(energy)-prev
+        # if e_t > 0:
+        #     cos_produced = prev + Reactor1.ku*e_t
+        # else:
+        #     cos_produced = prev + Reactor1.kd*e_t
+        # Reactor1.add_water(cos_produced)
         return cos_produced
         
-    def check_saturation():
-        if Reactor1.saturation < 1:
-            return False
-        else:
-            return True
+    # def check_saturation():
+    #     if Reactor1.saturation < 1:
+    #         return False
+    #     else:
+    #         return True
 
     def clean():
         if Reactor1.state == "idle":
