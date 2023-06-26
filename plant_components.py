@@ -14,20 +14,20 @@ pph = 4
 r1_cleaning_speed = 0.1
 
 class Battery:
-    def __init__(self,charge):
+    def __init__(self, charge, max_charge):
         self.charge = charge
+        self.max_charge = max_charge
         
-        #Note that battery efficiency (below) is normally dependent on charge. 
-        #For a more accurate model, I should account for this
+        # Note that battery efficiency (below) is normally dependent on charge. 
+        # For a more accurate model, I should account for this
         self.efficiency = 0.9 
     
 class Reactor1():
-    # ku = 1/pph
-    # kd = 1/pph
-
     def __init__(self):
         self.state = "idle"
         self.saturation = 0
+        self.sat_factor = 5 # How fast r1 gets saturated per mol COS produced
+        self.clean_speed = 10 # How fast r1 gets cleaned
         
     @classmethod
     
@@ -41,19 +41,7 @@ class Reactor1():
     def react(cls, sx_produced):
         cos_produced = sx_produced
         Reactor1.state = "active"
-        # e_t = Reactor1.ss_output(energy)-prev
-        # if e_t > 0:
-        #     cos_produced = prev + Reactor1.ku*e_t
-        # else:
-        #     cos_produced = prev + Reactor1.kd*e_t
-        # Reactor1.add_water(cos_produced)
         return cos_produced
-        
-    # def check_saturation():
-    #     if Reactor1.saturation < 1:
-    #         return False
-    #     else:
-    #         return True
 
     def clean():
         if Reactor1.state == "idle":
@@ -83,3 +71,6 @@ class Reactor2:
             return prev + Reactor2.ku*e_t
         else:
             return prev + Reactor2.kd*e_t
+        
+class Sx_filter:
+    sat_factor = 3 # Sx filter saturation speed

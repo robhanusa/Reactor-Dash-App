@@ -52,3 +52,14 @@ class Hourly_state:
         self.solar = df_weather["shortwave_radiation (W/m²)"][hour] #W/m2
         self.solar_energy = calc_solar_energy(self.solar) #kW
         self.solar_power = self.solar_energy*pph #kWh
+        
+class Energy_flow():
+    def __init__(self):
+        self.to_r1 = 0
+        self.to_r2 = 0 
+        self.to_condenser = 0 
+        self.to_battery = 0
+        self.from_grid = 0
+        
+
+    
