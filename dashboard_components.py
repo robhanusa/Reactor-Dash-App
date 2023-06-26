@@ -127,9 +127,9 @@ def battery_charge_differential(e_to_battery):
     else:
         return e_to_battery / pph
 
-def update_reactor_1(period, r2_sx_current, r1_changeovers_tally):
+def update_reactor_1(r2_sx_current, r1_changeovers_tally):
     if reactor1_1.state == "active":
-        r1_cos_current = reactor1_1.react(r2_sx_current) 
+        r1_cos_current = reactor1_1.react(r2_sx_current) / 0.9 # Project assumption is 90% conversion rate for r2
         reactor1_1.saturation += r1_cos_current / pph * r1_sat_factor
         if reactor1_1.saturation >= 100:
             reactor1_1.saturation -= r1_cos_current / pph * r1_sat_factor
@@ -138,7 +138,7 @@ def update_reactor_1(period, r2_sx_current, r1_changeovers_tally):
             r1_changeovers_tally += 1
             
     elif reactor1_2.state == "active":
-        r1_cos_current = reactor1_2.react(r2_sx_current) 
+        r1_cos_current = reactor1_2.react(r2_sx_current) / 0.9 # Project assumption is 90% conversion rate for r2
         reactor1_2.saturation += r1_cos_current/pph*r1_sat_factor
         if reactor1_2.saturation >= 100:
             reactor1_2.saturation -= r1_cos_current/pph*r1_sat_factor
@@ -188,7 +188,7 @@ for hour in range(data_length):
         # Update arrays for battery charge, energy consumed by plant, 
         # energy directed to battery, and energy from grid
         battery_charge[period] = battery.charge
-        consumed_kw[period] = energy_flow.to_r1 + energy_flow.to_r2
+        consumed_kw[period] = energy_flow.to_r1 + energy_flow.to_r2 + energy_flow.to_condenser
         kw_to_battery_arr[period] = energy_flow.to_battery
         grid_e[period] = energy_flow.from_grid
         
@@ -202,7 +202,7 @@ for hour in range(data_length):
         r2_prev = r2_sx_current
         
         # Calculate reactor 1 states and tally changeovers
-        r1_changeovers_tally = update_reactor_1(period, r2_sx_current, r1_changeovers_tally)
+        r1_changeovers_tally = update_reactor_1(r2_sx_current, r1_changeovers_tally)
         r_1_1_sat[period] = reactor1_1.saturation
         r_1_2_sat[period] = reactor1_2.saturation
         r1_1_state[period] = reactor1_1.state

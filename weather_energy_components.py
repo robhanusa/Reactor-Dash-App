@@ -14,9 +14,9 @@ sp_area = 1000 # m^2
 wt_cut_in = 13 # km/h
 wt_rated_speed = 50 # km/h
 wt_cut_out = 100 # km/h
-wt_max_energy = 5 # kw
-data_length = 200
-battery_max = 20 #kwh
+wt_max_energy = 5 # kW
+data_length = 87671
+battery_max = 20 #kWh
 
 cols = ["time","windspeed_100m (km/h)","shortwave_radiation (W/m²)"]
 
@@ -52,6 +52,8 @@ class Hourly_state:
         self.solar = df_weather["shortwave_radiation (W/m²)"][hour] #W/m2
         self.solar_energy = calc_solar_energy(self.solar) #kW
         self.solar_power = self.solar_energy*pph #kWh
+        self.month = df_weather["time"][hour].month
+        self.hour_of_day = df_weather["time"][hour].hour
         
 class Energy_flow():
     def __init__(self):
