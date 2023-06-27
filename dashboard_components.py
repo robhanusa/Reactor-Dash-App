@@ -123,9 +123,9 @@ fig_e_allo.add_trace(go.Scatter(x=[], y=[], mode= "lines",
 fig_e_allo.update_xaxes(title_text="Minutes before present", 
                         range=[-idle_start_length,0],
                         row=1, col=1)
-fig_e_allo.update_yaxes(title_text="kW produced/consumed", range=[0,20], 
+fig_e_allo.update_yaxes(title_text="kW produced/consumed", range=[0,1500], 
                         secondary_y=False, row=1, col=1)
-fig_e_allo.update_yaxes(title_text="kWh stored in battery", range=[0,100], 
+fig_e_allo.update_yaxes(title_text="kWh stored in battery", range=[0,wec.battery_max*1.05], 
                         secondary_y=True, row=1, col=1)
 fig_e_allo.update_layout(title_text="Energy Allocation", title_x=0.5,
                          title=dict(yref="paper",
@@ -146,9 +146,9 @@ fig_r2.add_trace(go.Scatter(x=[], y=[], mode= "lines", name="Energy input"),
                      row=1, col=1, secondary_y=True)
 fig_r2.update_xaxes(title_text="Minutes before present", range=[-500,0],
                           row=1, col=1)
-fig_r2.update_yaxes(title_text="mol Sx per hour", range=[0,1], 
+fig_r2.update_yaxes(title_text="mol Sx per hour", range=[0,50], 
                     secondary_y=False, row=1, col=1)
-fig_r2.update_yaxes(title_text="kW", range=[0,20], 
+fig_r2.update_yaxes(title_text="kW", range=[0,500], 
                     secondary_y=True, row=1, col=1)
 fig_r2.update_layout(title_text="Sx production over time", title_x=0.5,
                      title=dict(yref="paper", 
@@ -159,17 +159,17 @@ fig_r2.update_layout(title_text="Sx production over time", title_x=0.5,
                      margin=graph_margin)
 
 # Reactor 2 reaction curve figure
-r2_rxn_curve_x = np.linspace(0,16,20)
+r2_rxn_curve_x = np.linspace(0,500,20)
 r2_rxn_curve_y= [reactor2.ss_output(i) for i in r2_rxn_curve_x]
 
 fig_r2_rxn = make_subplots(rows=1,cols=1)
-fig_r2_rxn.add_trace(go.Scatter(x=[], y=[], mode= "lines", 
+fig_r2_rxn.add_trace(go.Scatter(x=[], y=[], mode="lines", 
                                 name="R2 reaction curve"), row=1, col=1)
 fig_r2_rxn.add_trace(go.Scatter(x=[], y=[], marker=dict(color="red", size=20),
                                 mode="markers", name="Current state"), 
                      row=1, col=1)
-fig_r2_rxn.update_xaxes(title_text="kW", range=[0,16], row=1, col=1)
-fig_r2_rxn.update_yaxes(title_text="mol Sx per hour", range=[0,1.1], 
+fig_r2_rxn.update_xaxes(title_text="kW", range=[0,500], row=1, col=1)
+fig_r2_rxn.update_yaxes(title_text="mol Sx per hour", range=[0,60], 
                         row=1, col=1)
 fig_r2_rxn.update_layout(title_text="Steady state Sx output versus energy", 
                          title_x=0.5,

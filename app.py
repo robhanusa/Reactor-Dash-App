@@ -99,14 +99,14 @@ app.layout = dbc.Container([
         
         # kW to R1
         dbc.Col([html.Span(id="kw_to_r1", 
-                          style={"padding-left":"140px"}), 
+                          style={"padding-left":"130px"}), 
                 html.Div("kW", 
                          className="num-display")],
                 width=4), 
         
         # kW to R2
         dbc.Col([html.Span(id="kw_to_r2",
-                           style={"padding-left":"140px"}), 
+                           style={"padding-left":"100px"}), 
                  html.Div("kW", 
                           className="num-display")],
                 width=2), 

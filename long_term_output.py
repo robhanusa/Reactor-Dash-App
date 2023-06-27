@@ -19,6 +19,12 @@ outputs:
     (data for graphs)
         Energy from grid, averaged for each hour, grouped by month
         Sx produced per month
+        
+Target production rate is 30 mol S per hr, on average.
+This comes to 262.8 kmol S per year
+(note that the official goal is 239.7 kmol S / year [266.4 kmol COS conversion @ 90% efficiency],
+ but general assumption of uptime is 8000 hours per year. This model doesn't [yet]
+ account for downtime, so we're currently targeting 262.8 kmol S / year)
 '''
 import numpy as np
 import plant_components as pc
@@ -33,9 +39,9 @@ battery_specs = { # Using battery at https://www.backupbatterypower.com/products
     }
 
 solar_panel_specs = {
-    "area": 1000, # m^2
+    "area": 10000, # m^2
     "efficiency": 0.1,
-    "cost": 1000*200/1.1 # $200/m2 (/1.1 eur to usd) https://www.sunpal-solar.com/info/how-much-does-a-solar-panel-cost-per-square-me-72064318.html
+    "cost": 10000*200/1.1 # $200/m2 (/1.1 eur to usd) https://www.sunpal-solar.com/info/how-much-does-a-solar-panel-cost-per-square-me-72064318.html
     }
 
 wind_turbine_specs = {
@@ -121,3 +127,50 @@ for hour in range(wec.data_length):
 ave_renewable_hourly = total_renewable_hourly / hour_tally
 ave_grid_hourly = total_grid_hourly / hour_tally
 ave_sx_monthly = total_sx_monthly / month_tally
+
+#%% Plot grid consumptions
+
+from plotly.subplots import make_subplots
+import plotly.graph_objects as go
+import plotly.io as pio
+
+pio.renderers.default='browser'
+
+months = ['January',
+          'February',
+          'March',
+          'April',
+          'May',
+          'June',
+          'July',
+          'August',
+          'September',
+          'October',
+          'November',
+          'December']
+
+#colors for legend
+colors = ['#1e00ff',
+        '#a300e5',
+        '#dd00c6',
+        '#ff00a5',
+        '#ff0085',
+        '#ff0067',
+        '#ff004c',
+        '#ff4b31',
+        '#ff7a0d',
+        '#ff9e00',
+        '#ffbd00',
+        '#ffd800']
+
+fig = make_subplots(rows=1,cols=1)
+for i in range(len(months)):
+    fig.add_trace(go.Scatter(x=[x for x in range(24)], y=ave_grid_hourly[:,i], 
+                             mode="lines", name=months[i], line_color=colors[i]),
+                  row=1, col=1)
+    
+fig.update_xaxes(title_text="Time of day (hour)",row=1, col=1)
+fig.update_yaxes(title_text="Average kWh from grid", range=[-1,21],row=1, col=1)
+fig.update_layout(title_text="Average energy needed from grid per hour by month", title_x=0.5)
+
+fig.show()

@@ -10,13 +10,13 @@ from plant_components import pph
 # sp: solar panel
 # wt: wind turbine
 sp_efficiency = 0.1
-sp_area = 1000 # m^2
+sp_area = 10000 # m^2
 wt_cut_in = 13 # km/h
 wt_rated_speed = 50 # km/h
 wt_cut_out = 100 # km/h
-wt_max_energy = 5 # kW
+wt_max_energy = 1000 # kW
 data_length = 87671
-battery_max = 20 #kWh
+battery_max = 1144 #kWh
 
 cols = ["time","windspeed_100m (km/h)","shortwave_radiation (W/m²)"]
 
@@ -75,10 +75,10 @@ def allocate_e_to_condenser(to_r2, reactor2):
 # Need to adjust so COS produced = COS consumed
 def distribute_energy(energy_generated, energy_tally, r2_e_prev, energy_flow, battery, reactor2):
     energy_stored = battery.charge
-    r1_max = 0.7
-    r1_min = 0.7
-    r2_max = 4
-    r2_min = 1
+    r1_max = 50
+    r1_min = 50
+    r2_max = 500
+    r2_min = 50
     
     # Check if there has already been a change in energy distribution in the last
     # hour. If so, don't change current distribution.
@@ -96,7 +96,7 @@ def distribute_energy(energy_generated, energy_tally, r2_e_prev, energy_flow, ba
         energy_flow.from_grid = 0
     elif energy_stored/battery_max < 0.50:
         energy_flow.to_r1 = r1_max
-        energy_flow.to_r2 = 2
+        energy_flow.to_r2 = 200
         energy_flow.to_condenser = allocate_e_to_condenser(energy_flow.to_r2, reactor2)
         energy_flow.from_grid = 0
     else:
@@ -113,14 +113,17 @@ def distribute_energy(energy_generated, energy_tally, r2_e_prev, energy_flow, ba
         energy_flow.to_battery = energy_generated \
             - energy_flow.to_r1 - energy_flow.to_r2 - energy_flow.to_condenser
     else:
-        energy_flow.to_battery = 0
+        if energy_stored + energy_generated < r2_min + r1_min:
+            energy_flow.to_battery = -energy_stored
+        else:
+            energy_flow.to_battery = 0
 
     return energy_tally, r2_e_prev
 
 def battery_charge_differential(e_to_battery, battery):
     if e_to_battery > 0:
         if e_to_battery * battery.efficiency / pph + battery.charge > battery_max:
-            return 0
+            return battery_max - battery.charge
         else:
             return e_to_battery * battery.efficiency / pph
     else:
