@@ -9,12 +9,12 @@ from plant_components import pph
 
 # sp: solar panel
 # wt: wind turbine
-sp_efficiency = 0.1
-sp_area = 10000 # m^2
-wt_cut_in = 13 # km/h
-wt_rated_speed = 50 # km/h
-wt_cut_out = 100 # km/h
-wt_max_energy = 1000 # kW
+# sp_efficiency = 0.1
+# sp_area = 10000 # m^2
+# wt_cut_in = 13 # km/h
+# wt_rated_speed = 50 # km/h
+# wt_cut_out = 100 # km/h
+# wt_max_energy = 1000 # kW
 data_length = 87671
 battery_max = 1144 #kWh
 
@@ -28,29 +28,36 @@ df_weather = pd.read_csv("wind_solar_2013-2022_open-meteo.com.csv",
 df_weather["time"] = pd.to_datetime(df_weather["time"])
 
 # calc kw's generated from solar panels
-def calc_solar_energy(solar_radiation):
+def calc_solar_energy(solar_radiation, solar_panel_specs):
+    sp_area = solar_panel_specs['area']
+    sp_efficiency = solar_panel_specs['efficiency']
     return solar_radiation*sp_area*sp_efficiency/1000
 
 # calc kw's generated from wind turbines
 # for simplicity, assuming linear relationship between cut-in and rated speeds
 # for complex relationships, look at (Sohoni 2016)
-def calc_wind_energy(windspeed):
+def calc_wind_energy(windspeed, wind_turbine_specs):
+    wt_cut_in = wind_turbine_specs['cut_in']
+    wt_cut_out = wind_turbine_specs['cut_out']
+    wt_rated_speed = wind_turbine_specs['rated_speed']
+    wt_max_energy = wind_turbine_specs['max_energy']
+    wt_number = wind_turbine_specs['count']
     if windspeed < wt_cut_in or windspeed > wt_cut_out: 
         return 0
     elif windspeed > wt_rated_speed: 
-        return wt_max_energy
+        return wt_number*wt_max_energy
     else:
-        return (wt_max_energy*(windspeed - wt_cut_in)/(wt_rated_speed - wt_cut_in))
+        return wt_number*(wt_max_energy*(windspeed - wt_cut_in)/(wt_rated_speed - wt_cut_in))
 
 # each system state comprises of a period of 6 minutes (10/hour) when pph = 10
 class Hourly_state:
-    def __init__(self,hour):
+    def __init__(self,hour, solar_panel_specs, wind_turbine_specs):
         self.time = df_weather["time"][hour]
         self.wind = df_weather["windspeed_100m (km/h)"][hour] #km/h
-        self.wind_energy = calc_wind_energy(self.wind) #kW
+        self.wind_energy = calc_wind_energy(self.wind, wind_turbine_specs) #kW
         self.wind_power = self.wind_energy*pph #kWh
         self.solar = df_weather["shortwave_radiation (W/m²)"][hour] #W/m2
-        self.solar_energy = calc_solar_energy(self.solar) #kW
+        self.solar_energy = calc_solar_energy(self.solar, solar_panel_specs) #kW
         self.solar_power = self.solar_energy*pph #kWh
         self.month = df_weather["time"][hour].month
         self.hour_of_day = df_weather["time"][hour].hour

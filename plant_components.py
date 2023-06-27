@@ -13,10 +13,20 @@ pph = 2
 
 #r1_cleaning_speed = 0.1
 
+# class Battery:
+#     def __init__(self, charge, max_charge):
+#         self.charge = charge
+#         self.max_charge = max_charge
+        
+#         # Note that battery efficiency (below) is normally dependent on charge. 
+#         # For a more accurate model, I should account for this
+#         self.efficiency = 0.9 
+
 class Battery:
-    def __init__(self, charge, max_charge):
+    def __init__(self, charge, max_charge, specs):
         self.charge = charge
-        self.max_charge = max_charge
+        self.max_charge = specs['max_charge']
+        self.cost = specs['cost']
         
         # Note that battery efficiency (below) is normally dependent on charge. 
         # For a more accurate model, I should account for this

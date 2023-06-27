@@ -30,6 +30,9 @@ import numpy as np
 import plant_components as pc
 from plant_components import pph
 import weather_energy_components as wec
+import time
+
+start = time.time()
 
 
 # Inputs
@@ -77,7 +80,7 @@ reactor1_2 = pc.Reactor1()
 reactor1_1.state = "active"
 reactor2 = pc.Reactor2()
 sx_filter = pc.Sx_filter()
-battery = pc.Battery(0.5*wec.battery_max, wec.battery_max)
+battery = pc.Battery(0.5*wec.battery_max, wec.battery_max, battery_specs)
 energy_flow = wec.Energy_flow()
 energy_tally = pph
 r2_e_prev = 0
@@ -86,7 +89,7 @@ prev_hour = 0
 
 # Calculate conditions at each hourly state and store in arrays
 for hour in range(wec.data_length):
-    state = wec.Hourly_state(hour)
+    state = wec.Hourly_state(hour, solar_panel_specs, wind_turbine_specs)
     
     # Allow for multiple periods per hour
     for i in range(pph):
@@ -127,6 +130,11 @@ for hour in range(wec.data_length):
 ave_renewable_hourly = total_renewable_hourly / hour_tally
 ave_grid_hourly = total_grid_hourly / hour_tally
 ave_sx_monthly = total_sx_monthly / month_tally
+
+end = time.time()
+print("Time elapsed: ", end - start)
+#elapsed time is 4.9sec without inputting the sp and wt specs
+#including sp and wt specs doesn't significantly impact run time
 
 #%% Plot grid consumptions
 
