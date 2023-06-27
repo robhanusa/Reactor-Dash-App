@@ -63,5 +63,65 @@ class Energy_flow():
         self.to_battery = 0
         self.from_grid = 0
         
+def calc_generated_kw(state):
+    return state.wind_power/pph + state.solar_power/pph
 
+def allocate_e_to_condenser(to_r2, reactor2):
+    condenser_constant = 0.5
+    r2_sx_ss = reactor2.ss_output(to_r2)
+    to_condenser = condenser_constant * r2_sx_ss
+    return to_condenser
+
+# Need to adjust so COS produced = COS consumed
+def distribute_energy(energy_generated, energy_tally, r2_e_prev, energy_flow, battery, reactor2):
+    energy_stored = battery.charge
+    r1_max = 0.7
+    r1_min = 0.7
+    r2_max = 4
+    r2_min = 1
     
+    # Check if there has already been a change in energy distribution in the last
+    # hour. If so, don't change current distribution.
+    if energy_tally < pph : 
+        energy_tally += 1
+    elif energy_stored + energy_generated < r2_min + r1_min:
+        energy_flow.to_r1 = r1_min
+        energy_flow.to_r2 = r2_min
+        energy_flow.to_condenser = allocate_e_to_condenser(energy_flow.to_r2, reactor2)
+        energy_flow.from_grid = r2_min + r1_min - (energy_stored + energy_generated)
+    elif energy_stored/battery_max < 0.30:
+        energy_flow.to_r1 = r1_min
+        energy_flow.to_r2 = r2_min
+        energy_flow.to_condenser = allocate_e_to_condenser(energy_flow.to_r2, reactor2)
+        energy_flow.from_grid = 0
+    elif energy_stored/battery_max < 0.50:
+        energy_flow.to_r1 = r1_max
+        energy_flow.to_r2 = 2
+        energy_flow.to_condenser = allocate_e_to_condenser(energy_flow.to_r2, reactor2)
+        energy_flow.from_grid = 0
+    else:
+        energy_flow.to_r1 = r1_max
+        energy_flow.to_r2 = r2_max
+        energy_flow.to_condenser = allocate_e_to_condenser(energy_flow.to_r2, reactor2)
+        energy_flow.from_grid = 0
+    
+    if r2_e_prev != energy_flow.to_r2: energy_tally = 1
+    
+    r2_e_prev = energy_flow.to_r2
+        
+    if energy_flow.from_grid == 0:
+        energy_flow.to_battery = energy_generated \
+            - energy_flow.to_r1 - energy_flow.to_r2 - energy_flow.to_condenser
+    else:
+        energy_flow.to_battery = 0
+
+    return energy_tally, r2_e_prev
+
+def battery_charge_differential(e_to_battery, battery):
+    if e_to_battery > 0:
+        if e_to_battery * battery.efficiency / pph + battery.charge > battery_max:
+            return 0
+        else:
+            return e_to_battery * battery.efficiency / pph
+    else:
+        return e_to_battery / pph
