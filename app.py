@@ -8,6 +8,7 @@ import dash
 from dash import html, dcc
 import dash_bootstrap_components as dbc
 from dash.dependencies import Input, Output
+import dash_daq as daq
 import dashboard_components as dc
 
 app = dash.Dash(__name__, 
@@ -18,8 +19,7 @@ app.layout = dbc.Container([
     
     # Start/stop button
     dbc.Row([
-        dbc.Col([html.Div("Start/Stop button", 
-                          className="num-display")], 
+        dbc.Col([daq.PowerButton(id="start",on=False)], 
                 width=1),
         
         # kW flowing to battery
@@ -184,7 +184,7 @@ app.layout = dbc.Container([
                           figure=dc.fig_r2), 
                 width=6)
         ]),
-    
+    dcc.Store(id="counter",data=0),
     dcc.Interval(id="interval",interval=300, 
                   n_intervals=0, max_intervals=len(dc.r2_sx_out)-501)
     ])
@@ -211,10 +211,13 @@ app.layout = dbc.Container([
               Output(component_id='energy_allocation_graph', component_property='extendData'),
               Output(component_id='reactor2_output_graph', component_property='extendData'),
               Output(component_id='r2_rxn_graph', component_property='extendData'),
-              Input(component_id='interval', component_property='n_intervals'))
+              Output(component_id='counter', component_property='data'),
+              Input(component_id='interval', component_property='n_intervals'),
+              Input(component_id='start', component_property='on'),
+              Input(component_id='counter', component_property='data'))
 
-def update(n_intervals):
-    return dc.update(n_intervals)
+def update(n_intervals, start_watch, counter):
+    return dc.update(n_intervals, start_watch, counter)
 
 if __name__ == "__main__":
     app.run_server(debug=True)
