@@ -135,14 +135,15 @@ print("Time elapsed: ", end - start)
 #elapsed time is 4.9sec without inputting the sp and wt specs
 #including sp and wt specs doesn't significantly impact run time
 
+
 #%% Plot grid consumptions
 
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 import plotly.io as pio
 
-pio.renderers.default='browser'
-
+#pio.renderers.default='browser'
+#pio.renderers.default = "iframe"
 months = ['January',
           'February',
           'March',
@@ -180,4 +181,33 @@ fig.update_xaxes(title_text="Time of day (hour)",row=1, col=1)
 fig.update_yaxes(title_text="Average kWh from grid", range=[-1,21],row=1, col=1)
 fig.update_layout(title_text="Average energy needed from grid per hour by month", title_x=0.5)
 
-fig.show()
+#fig.show()
+from dash import Dash, dcc, html, Input, Output
+#import plotly.graph_objects as go
+
+app = Dash(__name__)
+
+app.layout = html.Div(fig)
+
+
+# @app.callback(
+#     Output("graph", "figure"),
+#     Input("dummy", "value")
+#     )
+
+# def update(num_months):
+#     num_months = 12
+
+#     fig = make_subplots(rows=1,cols=1)
+#     for i in range(len(num_months)):
+#         fig.add_trace(go.Scatter(x=[x for x in range(24)], y=ave_grid_hourly[:,i], 
+#                                  mode="lines", name=months[i], line_color=colors[i]),
+#                       row=1, col=1)
+        
+#     fig.update_xaxes(title_text="Time of day (hour)",row=1, col=1)
+#     fig.update_yaxes(title_text="Average kWh from grid", range=[-1,21],row=1, col=1)
+#     fig.update_layout(title_text="Average energy needed from grid per hour by month", title_x=0.5)
+#     return fig
+
+if __name__ == "__main__":
+    app.run_server(debug=True)

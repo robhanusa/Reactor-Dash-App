@@ -7,14 +7,6 @@ Created on Wed May 17 07:53:37 2023
 import pandas as pd
 from plant_components import pph
 
-# sp: solar panel
-# wt: wind turbine
-# sp_efficiency = 0.1
-# sp_area = 10000 # m^2
-# wt_cut_in = 13 # km/h
-# wt_rated_speed = 50 # km/h
-# wt_cut_out = 100 # km/h
-# wt_max_energy = 1000 # kW
 data_length = 87671
 battery_max = 1144 #kWh
 
