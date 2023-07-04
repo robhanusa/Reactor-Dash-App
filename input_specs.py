@@ -25,3 +25,9 @@ wind_turbine_specs = {
     "count": 1,
     "cost": 1.5*10**6 # EUR/MW (https://www.windustry.org/how_much_do_wind_turbines_cost)
     }
+
+r2_max_constants = {
+    "c1": 0.05,
+    "c2": 0.05,
+    "c3": 2*10**(-5)
+    }

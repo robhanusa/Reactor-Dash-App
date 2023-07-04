@@ -7,8 +7,9 @@ Created on Wed May 17 07:53:37 2023
 import pandas as pd
 from plant_components import pph
 
-data_length = 87671
+data_length = round(87671*.8) #use first 80% of data as training
 battery_max = 1144 #kWh
+battery_limit = battery_max * 0.8 # Only allow battery to reach 80% charge
 
 cols = ["time","windspeed_100m (km/h)","shortwave_radiation (W/m²)"]
 
@@ -65,65 +66,86 @@ class Energy_flow():
 def calc_generated_kw(state):
     return state.wind_power/pph + state.solar_power/pph
 
-def allocate_e_to_condenser(to_r2, reactor2):
+def allocate_p_to_condenser(to_r2, reactor2):
     condenser_constant = 0.5
     r2_sx_ss = reactor2.ss_output(to_r2)
     to_condenser = condenser_constant * r2_sx_ss
     return to_condenser
 
-# Need to adjust so COS produced = COS consumed
-def distribute_energy(energy_generated, energy_tally, r2_e_prev, energy_flow, battery, reactor2):
-    energy_stored = battery.charge
+def calc_r2_max(r2_max_constants, forecast):
+    hrs_0_6 = sum(forecast[0:6])
+    hrs_7_12 = sum(forecast[6:13])
+    c1 = r2_max_constants["c1"]
+    c2 = r2_max_constants["c2"]
+    c3 = r2_max_constants["c3"]
+    return max(50, c1*hrs_0_6 + c2*hrs_7_12 + c3*hrs_0_6*hrs_7_12)
+
+
+def distribute_energy(power_generated, energy_tally, r2_e_prev, energy_flow, battery, reactor2, r2_max_constants, forecast):
+    battery_energy_available = battery.charge - battery_max * 0.2 # Don't allow battery below 20% charge
+    battery_power_available = pph * battery_energy_available
+    battery_useful_percent = battery_energy_available/((0.8 - 0.2) * battery_max)
+
     r1_max = 50
     r1_min = 50
-    r2_max = 500
+    r2_max = calc_r2_max(r2_max_constants, forecast)
     r2_min = 50
+    
+    power_available = battery_power_available + power_generated
+    power_required = r1_min + r2_min + allocate_p_to_condenser(r2_min, reactor2)
     
     # Check if there has already been a change in energy distribution in the last
     # hour. If so, don't change current distribution.
     if energy_tally < pph : 
         energy_tally += 1
-    elif energy_stored + energy_generated < r2_min + r1_min:
+    elif power_available < power_required:
         energy_flow.to_r1 = r1_min
         energy_flow.to_r2 = r2_min
-        energy_flow.to_condenser = allocate_e_to_condenser(energy_flow.to_r2, reactor2)
-        energy_flow.from_grid = r2_min + r1_min - (energy_stored + energy_generated)
-    elif energy_stored/battery_max < 0.30:
+        energy_flow.to_condenser = allocate_p_to_condenser(energy_flow.to_r2, reactor2)
+
+    elif battery_useful_percent < 0.30:
         energy_flow.to_r1 = r1_min
         energy_flow.to_r2 = r2_min
-        energy_flow.to_condenser = allocate_e_to_condenser(energy_flow.to_r2, reactor2)
-        energy_flow.from_grid = 0
-    elif energy_stored/battery_max < 0.50:
-        energy_flow.to_r1 = r1_max
-        energy_flow.to_r2 = 200
-        energy_flow.to_condenser = allocate_e_to_condenser(energy_flow.to_r2, reactor2)
-        energy_flow.from_grid = 0
+        energy_flow.to_condenser = allocate_p_to_condenser(energy_flow.to_r2, reactor2)
+
+    elif battery_useful_percent < 0.50:
+        energy_flow.to_r1 = (r1_min + r1_max) / 2
+        energy_flow.to_r2 = (r2_min + r2_max) / 2
+        energy_flow.to_condenser = allocate_p_to_condenser(energy_flow.to_r2, reactor2)
+
     else:
         energy_flow.to_r1 = r1_max
         energy_flow.to_r2 = r2_max
-        energy_flow.to_condenser = allocate_e_to_condenser(energy_flow.to_r2, reactor2)
-        energy_flow.from_grid = 0
+        energy_flow.to_condenser = allocate_p_to_condenser(energy_flow.to_r2, reactor2)
+        
+    energy_flow.to_battery = allocate_p_to_battery(energy_flow, battery, power_generated)
+    energy_flow.from_grid = energy_flow.to_r1 + energy_flow.to_r2 \
+                            + energy_flow.to_condenser + energy_flow.to_battery \
+                            - power_generated
     
     if r2_e_prev != energy_flow.to_r2: energy_tally = 1
     
     r2_e_prev = energy_flow.to_r2
-        
-    if energy_flow.from_grid == 0:
-        energy_flow.to_battery = energy_generated \
-            - energy_flow.to_r1 - energy_flow.to_r2 - energy_flow.to_condenser
-    else:
-        if energy_stored + energy_generated < r2_min + r1_min:
-            energy_flow.to_battery = -energy_stored
-        else:
-            energy_flow.to_battery = 0
 
     return energy_tally, r2_e_prev
 
-def battery_charge_differential(e_to_battery, battery):
-    if e_to_battery > 0:
-        if e_to_battery * battery.efficiency / pph + battery.charge > battery_max:
-            return battery_max - battery.charge
-        else:
-            return e_to_battery * battery.efficiency / pph
+def allocate_p_to_battery(energy_flow, battery, power_generated):
+    power_consumption = energy_flow.to_r1 + energy_flow.to_r2 + energy_flow.to_condenser
+    power_surplus = power_generated - power_consumption
+    
+    # confirm there is room for battery to be charged or discharged
+    if power_surplus > 0 and battery.charge + power_surplus / pph > battery_limit:
+        return (battery_limit - battery.charge) * pph
+    elif power_surplus < 0 and battery.charge + power_surplus / pph < battery_max * 0.2:
+        return -(battery.charge - battery_max * 0.2) * pph
     else:
-        return e_to_battery / pph
+        return power_surplus
+
+def battery_charge_differential(power_to_battery, battery):
+    if power_to_battery > 0:
+        if power_to_battery * battery.efficiency / pph + battery.charge > battery_limit:
+            return battery_limit - battery.charge
+        else:
+            return power_to_battery * battery.efficiency / pph
+    else:
+        return power_to_battery / pph

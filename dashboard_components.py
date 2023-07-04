@@ -434,7 +434,8 @@ for hour in range(wec.data_length):
         r2_prev = r2_sx_current
 
         # Add up energy taken from grid
-        total_grid_hourly[state.hour_of_day][state.month-1] += energy_flow.from_grid/pph
+        if energy_flow.from_grid > 0: 
+            total_grid_hourly[state.hour_of_day][state.month-1] += energy_flow.from_grid/pph
         
         if prev_hour != state.hour_of_day: hour_tally[state.hour_of_day][state.month-1] += 1
         if prev_month != state.month: month_tally[state.month-1] += 1
@@ -464,12 +465,12 @@ colors = ['#1e00ff',
         '#ff00a5',
         '#ff0085',
         '#ff0067',
-        '#ff004c',
-        '#ff4b31',
-        '#ff7a0d',
-        '#ff9e00',
-        '#ffbd00',
-        '#ffd800']
+        '#ff0067',
+        '#ff0085',
+        '#ff00a5',
+        '#dd00c6',
+        '#a300e5',
+        '#1e00ff']
 
 # y axis values
 ave_grid_hourly = total_grid_hourly / hour_tally
@@ -480,7 +481,7 @@ for i in range(len(months)):
                              mode="lines", name=months[i], line_color=colors[i]),
                             row=1, col=1)
     
-fig_grid_cons.update_xaxes(title_text="Time of day (hour)",row=1, col=1)
-fig_grid_cons.update_yaxes(title_text="Average kWh from grid", range=[-1,21],row=1, col=1)
+fig_grid_cons.update_xaxes(title_text="Time of day (hour)", row=1, col=1)
+fig_grid_cons.update_yaxes(title_text="Average kWh from grid", range=[-1,30], row=1, col=1)
 fig_grid_cons.update_layout(title_text="Average energy needed from grid per hour by month", 
                             title_x=0.5, height=650)

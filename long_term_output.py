@@ -31,183 +31,147 @@ import plant_components as pc
 from plant_components import pph
 import weather_energy_components as wec
 import time
+import input_specs as ins
 
 start = time.time()
 
-# Inputs
-battery_specs = { # Using battery at https://www.backupbatterypower.com/products/1-144-kwh-industrial-battery-backup-and-energy-storage-systems-ess-277-480-three-phase?pr_prod_strat=use_description&pr_rec_id=97fba9aea&pr_rec_pid=6561192214696&pr_ref_pid=6561191100584&pr_seq=uniform
-    "max_charge": 1144, # kWh
-    "cost": 1.2*10**6 
-    }
+# generate matrix of inputs
+wt_list = [0, 1] # number of 1MW wind turbines
+sp_list = [5000, 10000, 15,000] # area in m2 of solar panels
+b_list = [516, 1144, 2288] # battery sizes in kW
+c1_list = [0, 0.05, 0.1] # constants for r2_max eqn
+c2_list = [0, 0.05, 0.1]
+c3_list = [0, 2*10**(-5), 4*10**(-5)]
 
-solar_panel_specs = {
-    "area": 10000, # m^2
-    "efficiency": 0.1,
-    "cost": 10000*200/1.1 # $200/m2 (/1.1 eur to usd) https://www.sunpal-solar.com/info/how-much-does-a-solar-panel-cost-per-square-me-72064318.html
-    }
+forecast = np.zeros([wec.data_length-12,12])
+for hour in range(wec.data_length-12):
+    state = wec.Hourly_state(hour, ins.solar_panel_specs, ins.wind_turbine_specs)
 
-wind_turbine_specs = {
-    "cut_in": 13, # km/h
-    "rated_speed": 50, # km/h
-    "cut_out": 100, # km/h
-    "max_energy": 1000, # kW
-    "count": 1,
-    "cost": 1.5*10**6 # EUR/MW (https://www.windustry.org/how_much_do_wind_turbines_cost)
-    }
+    # Forecast data
+    for j in range(12):
+        future_state = wec.Hourly_state(hour+j+1, ins.solar_panel_specs, ins.wind_turbine_specs)
+        forecast[hour][j] = wec.calc_generated_kw(future_state)
+        
+wt = 1
+sp = 12222
+b = 1111
+c1 = .1
+c2 = .1 
+c3 = .00001
 
-# initialize counters
-total_grid = 0 # kw
-total_grid_hourly = np.zeros([24,12]) # kw per hour per month
-total_renewable = 0 # kw
-total_renewable_hourly = np.zeros([24,12]) # kw per hour per month
-total_sx = 0 # mol
-total_sx_monthly = np.zeros(12)
-hour_tally = np.zeros([24,12])
-month_tally = np.zeros(12)
+start = time.time()
 
-# Create arrays to store all calculated data that will be displayed.
-# This helps minimize the calculations occuring in the callback function and
-# lets the dashboard update more smoothly
-sx_sat = 0
-sx_filter_tally = 0
-r1_changeovers_tally = 0
-
-# Initiate necessary variables
-r2_prev = 0 
-reactor1_1 = pc.Reactor1()
-reactor1_2 = pc.Reactor1()
-reactor1_1.state = "active"
-reactor2 = pc.Reactor2()
-sx_filter = pc.Sx_filter()
-battery = pc.Battery(0.5*wec.battery_max, wec.battery_max, battery_specs)
-energy_flow = wec.Energy_flow()
-energy_tally = pph
-r2_e_prev = 0
-prev_month = 0
-prev_hour = 0
-
-# Calculate conditions at each hourly state and store in arrays
-for hour in range(wec.data_length):
-    state = wec.Hourly_state(hour, solar_panel_specs, wind_turbine_specs)
+def simulate(wt, sp, b, c1, c2, c3):
+    # initialize counters
+    e_from_grid = 0 # kwh
+    e_from_grid_hourly = np.zeros([24,12]) # kw per hour per month
+    e_to_grid = 0 # kwh
+    e_to_grid_hourly = np.zeros([24,12]) # kw per hour per month
+    total_renewable = 0 # kwh
+    total_renewable_hourly = np.zeros([24,12]) # kw per hour per month
+    total_sx = 0 # mol
+    total_sx_monthly = np.zeros(12)
+    hour_tally = np.zeros([24,12])
+    month_tally = np.zeros(12)
     
-    # Allow for multiple periods per hour
-    for i in range(pph):
+    # Create arrays to store all calculated data that will be displayed.
+    # This helps minimize the calculations occuring in the callback function and
+    # lets the dashboard update more smoothly
+    sx_sat = 0
+    sx_filter_tally = 0
+    r1_changeovers_tally = 0
+    
+    # Initiate necessary variables
+    r2_prev = 0 
+    reactor1_1 = pc.Reactor1()
+    reactor1_2 = pc.Reactor1()
+    reactor1_1.state = "active"
+    reactor2 = pc.Reactor2()
+    sx_filter = pc.Sx_filter()
+    battery = pc.Battery(0.5*wec.battery_max, wec.battery_max, ins.battery_specs)
+    energy_flow = wec.Energy_flow()
+    energy_tally = pph
+    r2_e_prev = 0
+    prev_month = 0
+    prev_hour = 0
+    
+    #forecast = np.zeros(12)
+    
+    # Calculate conditions at each hourly state and store in arrays
+    for hour in range(wec.data_length-12):
+        state = wec.Hourly_state(hour, ins.solar_panel_specs, ins.wind_turbine_specs)
         
         # Energy flowing to the plant
         energy_generated = wec.calc_generated_kw(state)
-        total_renewable += energy_generated/pph
-        total_renewable_hourly[state.hour_of_day][state.month-1] += energy_generated/pph
+        total_renewable += energy_generated
+        total_renewable_hourly[state.hour_of_day][state.month-1] += energy_generated
         
-        # Energy distribution for current period
-        energy_tally, r2_e_prev = wec.distribute_energy(energy_generated, energy_tally, r2_e_prev, energy_flow, battery, reactor2)
+        # # Forecast data
+        # for j in range(12):
+        #     future_state = wec.Hourly_state(hour+j+1, ins.solar_panel_specs, ins.wind_turbine_specs)
+        #     forecast[j] = wec.calc_generated_kw(future_state)
         
-        # Update battery charge
-        battery.charge += wec.battery_charge_differential(energy_flow.to_battery, battery)
-        
-        # Calculate reactor 2 state
-        r2_sx_current = reactor2.react(energy_flow.to_r2, r2_prev)
-        total_sx += r2_sx_current/pph
-        r2_prev = r2_sx_current
-        total_sx_monthly[state.month-1] += r2_sx_current/pph
-        
-        # Calculate reactor 1 states and tally changeovers
-        r1_changeovers_tally = pc.update_reactor_1(r2_sx_current, r1_changeovers_tally, reactor1_1, reactor1_2)
-        
-        # Update Sx filter saturation and tally filter changes
-        sx_sat, sx_filter_tally = pc.update_sx_filter(sx_sat, sx_filter_tally, sx_filter, r2_sx_current)
-        
-        # Add up energy taken from grid
-        total_grid += energy_flow.from_grid/pph
-        total_grid_hourly[state.hour_of_day][state.month-1] += energy_flow.from_grid/pph
-        
-        if prev_hour != state.hour_of_day: hour_tally[state.hour_of_day][state.month-1] += 1
-        if prev_month != state.month: month_tally[state.month-1] += 1
-        
-        prev_hour = state.hour_of_day
-        prev_month = state.month
+        # Allow for multiple periods per hour
+        for i in range(pph):
+            
+            # Energy distribution for current period
+            energy_tally, r2_e_prev = wec.distribute_energy(energy_generated, 
+                                                            energy_tally, 
+                                                            r2_e_prev, 
+                                                            energy_flow, 
+                                                            battery, 
+                                                            reactor2,
+                                                            ins.r2_max_constants, 
+                                                            forecast[hour])
+            
+            # Update battery charge
+            battery.charge += wec.battery_charge_differential(energy_flow.to_battery, battery)
+            
+            # Calculate reactor 2 state
+            r2_sx_current = reactor2.react(energy_flow.to_r2, r2_prev)
+            total_sx += r2_sx_current/pph
+            r2_prev = r2_sx_current
+            total_sx_monthly[state.month-1] += r2_sx_current/pph
+            
+            # Calculate reactor 1 states and tally changeovers
+            r1_changeovers_tally = pc.update_reactor_1(r2_sx_current, r1_changeovers_tally, reactor1_1, reactor1_2)
+            
+            # Update Sx filter saturation and tally filter changes
+            sx_sat, sx_filter_tally = pc.update_sx_filter(sx_sat, sx_filter_tally, sx_filter, r2_sx_current)
+            
+            # Add up energy taken from grid
+            if energy_flow.from_grid > 0:
+                e_from_grid += energy_flow.from_grid/pph
+                e_from_grid_hourly[state.hour_of_day][state.month-1] += energy_flow.from_grid/pph
+                
+            if energy_flow.from_grid < 0:
+                e_to_grid -= energy_flow.from_grid/pph
+                e_to_grid_hourly[state.hour_of_day][state.month-1] -= energy_flow.from_grid/pph
+            
+            if prev_hour != state.hour_of_day: hour_tally[state.hour_of_day][state.month-1] += 1
+            if prev_month != state.month: month_tally[state.month-1] += 1
+            
+            prev_hour = state.hour_of_day
+            prev_month = state.month
+    
+    # ave_renewable_hourly = total_renewable_hourly / hour_tally
+    # ave_from_grid_hourly = e_from_grid_hourly / hour_tally
+    # ave_to_grid_hourly = e_to_grid_hourly / hour_tally
+    # ave_sx_monthly = total_sx_monthly / month_tally
+    
+    revenue = 9.6*total_sx + 0.1*e_to_grid
+    opex = 0.25*e_from_grid
+    capex = 1000*b + 200*sp + (1.5*10**6)*wt
+    profit = revenue - opex - capex
+    
+    return profit, revenue, opex, capex
 
-ave_renewable_hourly = total_renewable_hourly / hour_tally
-ave_grid_hourly = total_grid_hourly / hour_tally
-ave_sx_monthly = total_sx_monthly / month_tally
+simulate(wt, sp, b, c1, c2, c3)
+
+num_scenarios = len(wt_list)*len(sp_list)*len(b_list)*len(c1_list)*len(c2_list)*len(c3_list)
+results_matrix = np.zeros([10, 10])
+
 
 end = time.time()
 print("Time elapsed: ", end - start)
-#elapsed time is 4.9sec without inputting the sp and wt specs
-#including sp and wt specs doesn't significantly impact run time
-
-
-#%% Plot grid consumptions
-
-from plotly.subplots import make_subplots
-import plotly.graph_objects as go
-import plotly.io as pio
-
-#pio.renderers.default='browser'
-#pio.renderers.default = "iframe"
-months = ['January',
-          'February',
-          'March',
-          'April',
-          'May',
-          'June',
-          'July',
-          'August',
-          'September',
-          'October',
-          'November',
-          'December']
-
-#colors for legend
-colors = ['#1e00ff',
-        '#a300e5',
-        '#dd00c6',
-        '#ff00a5',
-        '#ff0085',
-        '#ff0067',
-        '#ff004c',
-        '#ff4b31',
-        '#ff7a0d',
-        '#ff9e00',
-        '#ffbd00',
-        '#ffd800']
-
-fig = make_subplots(rows=1,cols=1)
-for i in range(len(months)):
-    fig.add_trace(go.Scatter(x=[x for x in range(24)], y=ave_grid_hourly[:,i], 
-                             mode="lines", name=months[i], line_color=colors[i]),
-                  row=1, col=1)
-    
-fig.update_xaxes(title_text="Time of day (hour)",row=1, col=1)
-fig.update_yaxes(title_text="Average kWh from grid", range=[-1,21],row=1, col=1)
-fig.update_layout(title_text="Average energy needed from grid per hour by month", title_x=0.5)
-
-#fig.show()
-from dash import Dash, dcc, html, Input, Output
-#import plotly.graph_objects as go
-
-app = Dash(__name__)
-
-app.layout = html.Div(fig)
-
-
-# @app.callback(
-#     Output("graph", "figure"),
-#     Input("dummy", "value")
-#     )
-
-# def update(num_months):
-#     num_months = 12
-
-#     fig = make_subplots(rows=1,cols=1)
-#     for i in range(len(num_months)):
-#         fig.add_trace(go.Scatter(x=[x for x in range(24)], y=ave_grid_hourly[:,i], 
-#                                  mode="lines", name=months[i], line_color=colors[i]),
-#                       row=1, col=1)
-        
-#     fig.update_xaxes(title_text="Time of day (hour)",row=1, col=1)
-#     fig.update_yaxes(title_text="Average kWh from grid", range=[-1,21],row=1, col=1)
-#     fig.update_layout(title_text="Average energy needed from grid per hour by month", title_x=0.5)
-#     return fig
-
-if __name__ == "__main__":
-    app.run_server(debug=True)
+#28 sec per condition

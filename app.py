@@ -16,13 +16,15 @@ app = dash.Dash(__name__,
                 update_title=None)
 
 app.layout = html.Div([
-    dcc.Tabs([
-        dcc.Tab(label='Time Lapse', children=[
+    dcc.Tabs(className='tab-style', children=[
+        dcc.Tab(label='Time Lapse', 
+                children=[
             dbc.Container([
                 
                 # Start/stop button
                 dbc.Row([
-                    dbc.Col([daq.PowerButton(id="start",on=False)], 
+                    dbc.Col([html.Div("Stop  /  Play"),
+                        daq.BooleanSwitch(id="start",on=False)], 
                             width=1),
                     
                     # kW flowing to battery
@@ -51,7 +53,7 @@ app.layout = html.Div([
                             width=3),
                     
                     # Energy from grid
-                    dbc.Col([html.Div("Energy purchased from grid:", 
+                    dbc.Col([html.Div("Energy from grid:", 
                                       className="num-display"),
                               html.Br(),
                               html.Span(id="kw_grid", 

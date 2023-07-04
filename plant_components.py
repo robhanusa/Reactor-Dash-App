@@ -18,8 +18,9 @@ class Battery:
         self.cost = specs['cost']
         
         # Note that battery efficiency (below) is normally dependent on charge. 
-        # For a more accurate model, I should account for this
-        self.efficiency = 0.9 
+        # Assume this efficiency is correct for 20-80% charge, which will be our
+        # operating range.
+        self.efficiency = 0.95
     
 class Reactor1():
     def __init__(self):
@@ -35,8 +36,8 @@ class Reactor1():
         return cos_produced
          
 class Reactor2: 
-    ku = 1/pph
-    kd = 1/pph
+    ku = .5/pph
+    kd = .5/pph
     
     def __init__(self):
         self.state = "idle"
