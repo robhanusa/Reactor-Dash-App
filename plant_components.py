@@ -9,10 +9,10 @@ import math
 # periods per hour. Reactor states will be calculated "pph" times per hour. eg
 # if pph = 10, states are calculated every 1hr/10 = 6 min. This is necessary because 
 # the weather data hourly, but plant state is calculated more frequently
-pph = 4
+pph = 1
 
 class Battery:
-    def __init__(self, charge, max_charge, specs):
+    def __init__(self, charge, specs):
         self.charge = charge
         self.max_charge = specs['max_charge']
         self.cost = specs['cost']

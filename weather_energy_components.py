@@ -7,9 +7,9 @@ Created on Wed May 17 07:53:37 2023
 import pandas as pd
 from plant_components import pph
 
-data_length = round(87671*.8) #use first 80% of data as training
-battery_max = 1144 #kWh
-battery_limit = battery_max * 0.8 # Only allow battery to reach 80% charge
+data_length = round(87671*.8) #use first 40% of data as training
+# battery_max = 1144 #kWh
+# battery_limit = battery_max * 0.8 # Only allow battery to reach 80% charge
 
 cols = ["time","windspeed_100m (km/h)","shortwave_radiation (W/m²)"]
 
@@ -73,23 +73,26 @@ def allocate_p_to_condenser(to_r2, reactor2):
     return to_condenser
 
 def calc_r2_max(r2_max_constants, forecast):
-    hrs_0_6 = sum(forecast[0:6])
-    hrs_7_12 = sum(forecast[6:13])
+    # print("Forecast: ", forecast)
+    hrs_0_6, hrs_7_12 = forecast
     c1 = r2_max_constants["c1"]
     c2 = r2_max_constants["c2"]
     c3 = r2_max_constants["c3"]
+    # print("c1, c2, c3", c1, ", ", c2, ", ", c3)
     return max(50, c1*hrs_0_6 + c2*hrs_7_12 + c3*hrs_0_6*hrs_7_12)
 
 
 def distribute_energy(power_generated, energy_tally, r2_e_prev, energy_flow, battery, reactor2, r2_max_constants, forecast):
-    battery_energy_available = battery.charge - battery_max * 0.2 # Don't allow battery below 20% charge
+    battery_energy_available = battery.charge - battery.max_charge * 0.2 # Don't allow battery below 20% charge
     battery_power_available = pph * battery_energy_available
-    battery_useful_percent = battery_energy_available/((0.8 - 0.2) * battery_max)
+    battery_useful_percent = battery_energy_available/((0.8 - 0.2) * battery.max_charge)
 
     r1_max = 50
     r1_min = 50
     r2_max = calc_r2_max(r2_max_constants, forecast)
     r2_min = 50
+    
+    #print("r2_max: ", r2_max)
     
     power_available = battery_power_available + power_generated
     power_required = r1_min + r2_min + allocate_p_to_condenser(r2_min, reactor2)
@@ -103,14 +106,24 @@ def distribute_energy(power_generated, energy_tally, r2_e_prev, energy_flow, bat
         energy_flow.to_r2 = r2_min
         energy_flow.to_condenser = allocate_p_to_condenser(energy_flow.to_r2, reactor2)
 
-    elif battery_useful_percent < 0.30:
+    elif battery_useful_percent < 0.10:
         energy_flow.to_r1 = r1_min
         energy_flow.to_r2 = r2_min
+        energy_flow.to_condenser = allocate_p_to_condenser(energy_flow.to_r2, reactor2)
+        
+    elif battery_useful_percent < 0.30:
+        energy_flow.to_r1 = (2*r1_min + r1_max) / 3
+        energy_flow.to_r2 = (2*r2_min + r2_max) / 3
         energy_flow.to_condenser = allocate_p_to_condenser(energy_flow.to_r2, reactor2)
 
     elif battery_useful_percent < 0.50:
         energy_flow.to_r1 = (r1_min + r1_max) / 2
         energy_flow.to_r2 = (r2_min + r2_max) / 2
+        energy_flow.to_condenser = allocate_p_to_condenser(energy_flow.to_r2, reactor2)
+        
+    elif battery_useful_percent < 0.70:
+        energy_flow.to_r1 = (r1_min + 2*r1_max) / 3
+        energy_flow.to_r2 = (r2_min + 2*r2_max) / 3
         energy_flow.to_condenser = allocate_p_to_condenser(energy_flow.to_r2, reactor2)
 
     else:
@@ -132,16 +145,18 @@ def distribute_energy(power_generated, energy_tally, r2_e_prev, energy_flow, bat
 def allocate_p_to_battery(energy_flow, battery, power_generated):
     power_consumption = energy_flow.to_r1 + energy_flow.to_r2 + energy_flow.to_condenser
     power_surplus = power_generated - power_consumption
+    battery_limit = 0.8 * battery.max_charge
     
     # confirm there is room for battery to be charged or discharged
     if power_surplus > 0 and battery.charge + power_surplus / pph > battery_limit:
         return (battery_limit - battery.charge) * pph
-    elif power_surplus < 0 and battery.charge + power_surplus / pph < battery_max * 0.2:
-        return -(battery.charge - battery_max * 0.2) * pph
+    elif power_surplus < 0 and battery.charge + power_surplus / pph < battery.max_charge * 0.2:
+        return -(battery.charge - battery.max_charge * 0.2) * pph
     else:
         return power_surplus
 
 def battery_charge_differential(power_to_battery, battery):
+    battery_limit = 0.8 * battery.max_charge
     if power_to_battery > 0:
         if power_to_battery * battery.efficiency / pph + battery.charge > battery_limit:
             return battery_limit - battery.charge

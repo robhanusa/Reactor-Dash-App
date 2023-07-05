@@ -16,7 +16,7 @@ import input_specs as ins
 #Tab 1
 
 graph_margin = dict(b=60, l=20, r=20, t=60)
-bat_start_charge = .5*wec.battery_max
+bat_start_charge = 0.5*ins.battery_specs["max_charge"]
 
 # Length of graphs' x axes.
 idle_start_length = 500
@@ -57,15 +57,29 @@ reactor1_2 = pc.Reactor1()
 reactor1_1.state = "active"
 reactor2 = pc.Reactor2()
 sx_filter = pc.Sx_filter()
-battery = pc.Battery(bat_start_charge, wec.battery_max, ins.battery_specs)
+battery = pc.Battery(bat_start_charge, ins.battery_specs)
 energy_flow = wec.Energy_flow()
 energy_tally = pph
 r2_e_prev = 0
 
+r2_max_constants = {
+    "c1": 0.05,
+    "c2": 0.05,
+    "c3": 2*10**(-5)
+    }
+
+forecast_arr = np.zeros(12)
 
 # Calculate conditions at each hourly state and store in arrays
-for hour in range(wec.data_length):
+for hour in range(wec.data_length-12):
     state = wec.Hourly_state(hour, ins.solar_panel_specs, ins.wind_turbine_specs)
+
+    # Forecast data
+    for j in range(12):
+        future_state = wec.Hourly_state(hour+j+1, ins.solar_panel_specs, ins.wind_turbine_specs)
+        forecast_arr[j] = wec.calc_generated_kw(future_state)
+    
+    forecast = (sum(forecast_arr[0:6]), sum(forecast_arr[6:13]))
     
     # Allow for multiple periods per hour
     for i in range(pph):
@@ -76,7 +90,14 @@ for hour in range(wec.data_length):
         generated_kw[period] = energy_generated
         
         # Energy distribution for current period
-        energy_tally, r2_e_prev = wec.distribute_energy(energy_generated, energy_tally, r2_e_prev, energy_flow, battery, reactor2)
+        energy_tally, r2_e_prev = wec.distribute_energy(energy_generated, 
+                                                        energy_tally, 
+                                                        r2_e_prev, 
+                                                        energy_flow, 
+                                                        battery, 
+                                                        reactor2,
+                                                        r2_max_constants,
+                                                        forecast)
         
         # Update battery charge
         battery.charge += wec.battery_charge_differential(energy_flow.to_battery, battery)
@@ -128,7 +149,7 @@ fig_e_allo.update_xaxes(title_text="Minutes before present",
                         row=1, col=1)
 fig_e_allo.update_yaxes(title_text="kW produced/consumed", range=[0,1500], 
                         secondary_y=False, row=1, col=1)
-fig_e_allo.update_yaxes(title_text="kWh stored in battery", range=[0,wec.battery_max*1.05], 
+fig_e_allo.update_yaxes(title_text="kWh stored in battery", range=[0,battery.max_charge*1.05], 
                         secondary_y=True, row=1, col=1)
 fig_e_allo.update_layout(title_text="Energy Allocation", title_x=0.5,
                          title=dict(yref="paper",
@@ -204,7 +225,7 @@ def update(n_intervals, start_watch, counter):
         
         # Battery level figure
         bat_lvl_full = battery_charge[period]
-        bat_lvl_empty = wec.battery_max - battery_charge[period]
+        bat_lvl_empty = battery.max_charge - battery_charge[period]
         fig_bat_lvl = go.Figure(data=[go.Bar(x=[1], y=[bat_lvl_full], 
                                               marker_color="green"),
                                       go.Bar(x=[1], y=[bat_lvl_empty],  
@@ -404,7 +425,7 @@ month_tally = np.zeros(12)
 r2_prev = 0 
 
 reactor2 = pc.Reactor2()
-battery = pc.Battery(0.5*wec.battery_max, wec.battery_max, ins.battery_specs)
+battery = pc.Battery(0.5*ins.battery_specs["max_charge"], ins.battery_specs)
 energy_flow = wec.Energy_flow()
 energy_tally = pph
 r2_e_prev = 0
@@ -412,8 +433,13 @@ prev_month = 0
 prev_hour = 0
 
 # Calculate conditions at each hourly state and store in arrays
-for hour in range(wec.data_length):
+for hour in range(wec.data_length-12):
     state = wec.Hourly_state(hour, ins.solar_panel_specs, ins.wind_turbine_specs)
+    
+    # Forecast data
+    for j in range(12):
+        future_state = wec.Hourly_state(hour+j+1, ins.solar_panel_specs, ins.wind_turbine_specs)
+        forecast_arr[j] = wec.calc_generated_kw(future_state)
     
     # Allow for multiple periods per hour
     for i in range(pph):
@@ -424,7 +450,14 @@ for hour in range(wec.data_length):
         total_renewable_hourly[state.hour_of_day][state.month-1] += energy_generated/pph
         
         # Energy distribution for current period
-        energy_tally, r2_e_prev = wec.distribute_energy(energy_generated, energy_tally, r2_e_prev, energy_flow, battery, reactor2)
+        energy_tally, r2_e_prev = wec.distribute_energy(energy_generated, 
+                                                        energy_tally, 
+                                                        r2_e_prev, 
+                                                        energy_flow, 
+                                                        battery, 
+                                                        reactor2,
+                                                        r2_max_constants,
+                                                        forecast)
         
         # Update battery charge
         battery.charge += wec.battery_charge_differential(energy_flow.to_battery, battery)
