@@ -62,12 +62,6 @@ energy_flow = wec.Energy_flow()
 energy_tally = pph
 r2_e_prev = 0
 
-r2_max_constants = {
-    "c1": 0.05,
-    "c2": 0.05,
-    "c3": 2*10**(-5)
-    }
-
 forecast_arr = np.zeros(12)
 
 # Calculate conditions at each hourly state and store in arrays
@@ -96,7 +90,7 @@ for hour in range(wec.data_length-12):
                                                         energy_flow, 
                                                         battery, 
                                                         reactor2,
-                                                        r2_max_constants,
+                                                        ins.r2_max_constants,
                                                         forecast)
         
         # Update battery charge

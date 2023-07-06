@@ -37,21 +37,14 @@ import pandas as pd
 start2 = time.time()
 
 # generate matrix of inputs
+
+# for doe_results_202230706.csv
 wt_list = [0, 1] # number of 1MW wind turbines
 sp_list = [5000, 10000, 15000] # area in m2 of solar panels
 b_list = [516, 1144, 2288] # battery sizes in kW
-c1_list = [0, 0.05, 0.1] # constants for r2_max eqn
-c2_list = [0, 0.05, 0.1]
-c3_list = [0, 2*10**(-5), 4*10**(-5)]
-
-# forecast = np.zeros([wec.data_length-12,12])
-# for hour in range(wec.data_length-12):
-#     state = wec.Hourly_state(hour, ins.solar_panel_specs, ins.wind_turbine_specs)
-
-#     # Forecast data
-#     for j in range(12):
-#         future_state = wec.Hourly_state(hour+j+1, ins.solar_panel_specs, ins.wind_turbine_specs)
-#         forecast[hour][j] = wec.calc_generated_kw(future_state)
+c1_list = [-.05, 0.025, 0.1] # constants for r2_max eqn
+c2_list = [-.05, 0.025, 0.1]
+c3_list = [-2*10**(-5), 1*10**(-5), 4*10**(-5)]
 
 
 # Pre-calculate forecast data
@@ -105,6 +98,7 @@ def run_scenario(wt_level, sp_level, b_level, c1_level, c2_level, c3_level):
     battery_specs = { 
         "max_charge": b, # kWh
         "cost": 1000*b
+
         }
 
     solar_panel_specs = {
@@ -137,31 +131,16 @@ def run_scenario(wt_level, sp_level, b_level, c1_level, c2_level, c3_level):
     total_renewable_hourly = np.zeros([24,12]) # kw per hour per month
     total_sx = 0 # mol
     total_sx_monthly = np.zeros(12)
-    # hour_tally = np.zeros([24,12])
-    # month_tally = np.zeros(12)
-    
-    # Create arrays to store all calculated data that will be displayed.
-    # This helps minimize the calculations occuring in the callback function and
-    # lets the dashboard update more smoothly
-    # sx_sat = 0
-    # sx_filter_tally = 0
-    # r1_changeovers_tally = 0
     
     # Initiate necessary variables
     r2_prev = 0 
     reactor1_1 = pc.Reactor1()
-    # reactor1_2 = pc.Reactor1()
     reactor1_1.state = "active"
     reactor2 = pc.Reactor2()
-    # sx_filter = pc.Sx_filter()
     battery = pc.Battery(0.5*battery_specs["max_charge"], battery_specs)
     energy_flow = wec.Energy_flow()
     energy_tally = pph
     r2_e_prev = 0
-    # prev_month = 0
-    # prev_hour = 0
-    
-    # forecast_arr = np.zeros(12)
     
     # Calculate conditions at each hourly state and store in arrays
     for hour in range(wec.data_length-12):
@@ -171,13 +150,6 @@ def run_scenario(wt_level, sp_level, b_level, c1_level, c2_level, c3_level):
         energy_generated = wec.calc_generated_kw(state)
         total_renewable += energy_generated
         total_renewable_hourly[state.hour_of_day][state.month-1] += energy_generated
-        
-        # # Forecast data
-        # for j in range(12):
-        #     future_state = wec.Hourly_state(hour+j+1, solar_panel_specs, wind_turbine_specs)
-        #     forecast_arr[j] = wec.calc_generated_kw(future_state)
-        
-        # forecast = (sum(forecast_arr[0:6]), sum(forecast_arr[6:13]))
         
         forecast = (forecast_store[wt_level][sp_level][hour][0],
                     forecast_store[wt_level][sp_level][hour][1])
@@ -204,12 +176,6 @@ def run_scenario(wt_level, sp_level, b_level, c1_level, c2_level, c3_level):
             r2_prev = r2_sx_current
             total_sx_monthly[state.month-1] += r2_sx_current/pph
             
-            # # Calculate reactor 1 states and tally changeovers
-            # r1_changeovers_tally = pc.update_reactor_1(r2_sx_current, r1_changeovers_tally, reactor1_1, reactor1_2)
-            
-            # # Update Sx filter saturation and tally filter changes
-            # sx_sat, sx_filter_tally = pc.update_sx_filter(sx_sat, sx_filter_tally, sx_filter, r2_sx_current)
-            
             # Add up energy taken from grid
             if energy_flow.from_grid > 0:
                 e_from_grid += energy_flow.from_grid/pph
@@ -218,21 +184,18 @@ def run_scenario(wt_level, sp_level, b_level, c1_level, c2_level, c3_level):
             if energy_flow.from_grid < 0:
                 e_to_grid -= energy_flow.from_grid/pph
                 e_to_grid_hourly[state.hour_of_day][state.month-1] -= energy_flow.from_grid/pph
-            
-            # if prev_hour != state.hour_of_day: hour_tally[state.hour_of_day][state.month-1] += 1
-            # if prev_month != state.month: month_tally[state.month-1] += 1
-            
-            # prev_hour = state.hour_of_day
-            # prev_month = state.month
     
-    # ave_renewable_hourly = total_renewable_hourly / hour_tally
-    # ave_from_grid_hourly = e_from_grid_hourly / hour_tally
-    # ave_to_grid_hourly = e_to_grid_hourly / hour_tally
-    # ave_sx_monthly = total_sx_monthly / month_tally
+    # spread capex cost over 10 years, so cost per year is always /10
+    capex = (battery_specs["cost"] + solar_panel_specs["cost"] + wind_turbine_specs["cost"])/10
+    revenue = (9.6*total_sx + 0.1*e_to_grid)/8 # divide by 8 years because 8 years of training data, -> revenue / year
     
-    revenue = 9.6*total_sx + 0.1*e_to_grid
-    opex = 0.25*e_from_grid
-    capex = battery_specs["cost"] + solar_panel_specs["cost"] + wind_turbine_specs["cost"]
+    # Roughly 15 kW required to make 1 mol S, so changing coef to .75 instead of .25
+    # will make it a little unfavorable to buy from grid to make Sx.
+    # With .75 coef there was still a favor of using grid energy to make Sx, but 
+    # Somewhat less so, since the battery was large in the optimal configureation
+    # 3rd attempt now with higher penalty at 1.25
+    opex = 1.25*e_from_grid/8 # divide by 8 years because 8 years of training data, -> opex / year
+    
     profit = revenue - opex - capex
     
     end = time.time()
@@ -269,18 +232,151 @@ for run in range(len(doe)):
     doe["revenue"][run] = revenue
     doe["opex"][run] = opex
     doe["capex"][run] = capex
-    
-    # doe.loc[run, "profit"] = profit
-    # doe.loc[run, "revenue"] = revenue
-    # doe.loc[run, "opex"] = opex
-    # doe.loc[run, "capex"] = capex
 
 end2 = time.time()    
 print("Time elapsed: ", end2 - start2)
 
 #%% Generate a model for profit as a function of the input parameters
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import PolynomialFeatures
 
 
+
+X = doe[["wt_level", "sp_level", "b_level", "c1_level", "c2_level", "c3_level"]]
+y = doe["profit"]
+
+model = polyfeatures3 = PolynomialFeatures(degree=2)
+fit_tr_model = model.fit_transform(X)
+lr_model = LinearRegression()
+lr_model.fit(fit_tr_model, y)
+
+# These results show that the most profitable is highest levels on sp, wt, and
+# All c constants, and lowest level on battery. Basically, it was most profitable
+# to purchase a lot of grid energy to produce Sx
+# Next, I'll try to allow negative c values, and do a higher penalty for grid energy
+# Also, changing to ave profit / year, and spread cost of capex out over 10 years.
+
+# Re-ran with higher penalty for grid energy. Now the maximum profit is at the 
+# max for all capex and all c's. The grid energy expenditure is higher than most,
+# but not astronomical like the last version (likely because we use a large battery
+# here)
 
 #%% Optimization: find parameter values that maximize profit
+import statsmodels.api as sm
+from scipy.optimize import minimize
+
+factors = ["const", "wt", "sp", "b", "c1", "c2", "c3", 
+           "wt^2", "wt*sp", "wt*b", "wt*c1", "wt*c2", "wt*c3",
+           "sp^2", "sp*b", "sp*c1", "sp*c2", "sp*c3",
+           "b^2", "b*c1","b*c2","b*c3",
+           "c1^2", "c1*c2", "c1*c3", "c2^2", "c2*c3", "c3^2"]
+
+X_labeled = pd.DataFrame(fit_tr_model, columns=factors)
+
+est = sm.OLS(y, X_labeled)
+est_fit = est.fit()
+print(est_fit.summary())
+
+# for data in doe = doe_results_20230706, p < 0.10 (significant) are:
+# wt, wt^2, wt*c1, wt*c2, wt*c3, b*c3
+# run again with only these factors + 1st-order terms that appear
+
+factors_reduced = ["const", "wt", "b", "c1", "c2", "c3", 
+                   "wt^2", "wt*c1", "wt*c2", "wt*c3", "b*c3"]
+
+X_labeled2 = X_labeled[factors_reduced]
+
+# run again
+est2 = sm.OLS(y, X_labeled2)
+est_fit2 = est2.fit()
+print(est_fit2.summary())
+
+# All terms have p < 0.10 except for c3, but we leave it in because it's part of interaction terms
+coefs = est_fit2.params
+
+lr_model2 = LinearRegression().fit(X_labeled2, y)
+
+# objective function is lr_model2.predict(x), but we need to change maximization problem
+# to a minimization:
+def objective(x):
+    y = coefs[0] + coefs[1]*x[1] + coefs[2]*x[2] + coefs[3]*x[3] + coefs[4]*x[4] \
+        + coefs[5]*x[5] + coefs[6]*x[1]**2 + coefs[7]*x[1]*x[3] + coefs[8]*x[1]*x[4] \
+        + coefs[9]*x[1]*x[5] + coefs[10]*x[2]*x[5]
+    return -y
+
+test = [objective(X_labeled2.loc[x][:6]) for x in range(len(X_labeled2))]
+
+# starting guess
+x0 = [1,1,1,1,1,1]
+
+# constraints
+
+# def constraint1(x):
+    
+#     # wt = 0 or 1
+    
+def constraint1(x):
+    
+    # set wt to 1, as this is binary but it is clear that 1 is better than 0
+    min_val = 1
+    max_val = 1
+    a1 = x[1] - min_val
+    a2 = max_val - x[1]
+    
+    return [a2, a1]
+
+def constraint2(x):
+    
+    # b is between 0 and 2
+    min_val = 0
+    max_val = 2
+    a1 = x[2] - min_val
+    a2 = max_val - x[2]
+    
+    return [a2, a1]
+
+def constraint3(x):
+    
+    # c1 is between 0 and 2
+    min_val = 0
+    max_val = 2
+    a1 = x[3] - min_val
+    a2 = max_val - x[3]
+    
+    return [a2, a1]
+
+def constraint4(x):
+    
+    # c2 is between 0 and 2
+    min_val = 0
+    max_val = 2
+    a1 = x[4] - min_val
+    a2 = max_val - x[4]
+    
+    return [a2, a1]
+
+def constraint5(x):
+    
+    # c3 is between 0 and 2
+    min_val = 0
+    max_val = 2
+    a1 = x[5] - min_val
+    a2 = max_val - x[5]
+    
+    return [a2, a1]
+    
+constraints = [{'type': 'ineq', 'fun': constraint1},
+               {'type': 'ineq', 'fun': constraint2},
+               {'type': 'ineq', 'fun': constraint3},
+               {'type': 'ineq', 'fun': constraint4},
+               {'type': 'ineq', 'fun': constraint5},
+              ]
+
+res = minimize(objective, x0, method='COBYLA', constraints = constraints)
+
+# Result is (1, 1, 2, 2, 2, 2) for ["const", "wt", "b", "c1", "c2", "c3"]
+
+res_x = res.x
+res_y = -objective(res_x)
+test_y = run_scenario(1, 1, 2, 2, 2, 2)
 
