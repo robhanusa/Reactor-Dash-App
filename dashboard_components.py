@@ -251,8 +251,10 @@ def update(n_intervals, start_watch, counter):
         # Image for energy from grid
         if grid_e[period] == 0:
             img_grid = "assets/idle_grid.png"
-        else:
+        elif grid_e[period] > 0:
             img_grid = "assets/from_grid.png"
+        else:
+            img_grid = "assets/to_grid.png"
             
         # Image for reactor 1 status's
         if r1_1_state[period] == "active" and \
@@ -450,7 +452,7 @@ for hour in range(wec.data_length-12):
                                                         energy_flow, 
                                                         battery, 
                                                         reactor2,
-                                                        r2_max_constants,
+                                                        ins.r2_max_constants,
                                                         forecast)
         
         # Update battery charge

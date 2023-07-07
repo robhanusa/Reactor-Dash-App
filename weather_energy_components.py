@@ -7,9 +7,7 @@ Created on Wed May 17 07:53:37 2023
 import pandas as pd
 from plant_components import pph
 
-data_length = round(87671*.8) #use first 40% of data as training
-# battery_max = 1144 #kWh
-# battery_limit = battery_max * 0.8 # Only allow battery to reach 80% charge
+data_length = round(87671*.8) #use first 80% of data as training (8 years)
 
 cols = ["time","windspeed_100m (km/h)","shortwave_radiation (W/m²)"]
 
@@ -42,7 +40,7 @@ def calc_wind_energy(windspeed, wind_turbine_specs):
     else:
         return wt_number*(wt_max_energy*(windspeed - wt_cut_in)/(wt_rated_speed - wt_cut_in))
 
-# each system state comprises of a period of 6 minutes (10/hour) when pph = 10
+# each system state comprises of a period of 1 hour / pph
 class Hourly_state:
     def __init__(self,hour, solar_panel_specs, wind_turbine_specs):
         self.time = df_weather["time"][hour]
@@ -73,12 +71,10 @@ def allocate_p_to_condenser(to_r2, reactor2):
     return to_condenser
 
 def calc_r2_max(r2_max_constants, forecast):
-    # print("Forecast: ", forecast)
     hrs_0_6, hrs_7_12 = forecast
     c1 = r2_max_constants["c1"]
     c2 = r2_max_constants["c2"]
     c3 = r2_max_constants["c3"]
-    # print("c1, c2, c3", c1, ", ", c2, ", ", c3)
     return max(50, c1*hrs_0_6 + c2*hrs_7_12 + c3*hrs_0_6*hrs_7_12)
 
 
@@ -91,8 +87,6 @@ def distribute_energy(power_generated, energy_tally, r2_e_prev, energy_flow, bat
     r1_min = 50
     r2_max = calc_r2_max(r2_max_constants, forecast)
     r2_min = 50
-    
-    #print("r2_max: ", r2_max)
     
     power_available = battery_power_available + power_generated
     power_required = r1_min + r2_min + allocate_p_to_condenser(r2_min, reactor2)

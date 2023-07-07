@@ -5,27 +5,6 @@ Created on Mon Jun 26 08:47:37 2023
 @author: rhanusa
 """
 
-''' 
-outputs:
-    (values)
-        Total energy from grid (eventually cost from grid, if we account for tiered pricing)
-        Sx produced
-        Sx filter changeovers
-        r1 changeovers
-        
-    (Adjustable inputs)
-        Capex (how large the battery, how many wind turbines, area of solar panels)
-    
-    (data for graphs)
-        Energy from grid, averaged for each hour, grouped by month
-        Sx produced per month
-        
-Target production rate is 30 mol S per hr, on average.
-This comes to 262.8 kmol S per year
-(note that the official goal is 239.7 kmol S / year [266.4 kmol COS conversion @ 90% efficiency],
- but general assumption of uptime is 8000 hours per year. This model doesn't [yet]
- account for downtime, so we're currently targeting 262.8 kmol S / year)
-'''
 import numpy as np
 import plant_components as pc
 from plant_components import pph
@@ -34,59 +13,62 @@ import time
 import input_specs as ins
 import pandas as pd
 
-start2 = time.time()
-
-# generate matrix of inputs
-
-# for doe_results_202230706.csv
-wt_list = [0, 1] # number of 1MW wind turbines
-sp_list = [5000, 10000, 15000] # area in m2 of solar panels
-b_list = [516, 1144, 2288] # battery sizes in kW
-c1_list = [-.05, 0.025, 0.1] # constants for r2_max eqn
-c2_list = [-.05, 0.025, 0.1]
-c3_list = [-2*10**(-5), 1*10**(-5), 4*10**(-5)]
-
-
 # Pre-calculate forecast data
-
-forecast_store = np.zeros([len(wt_list), len(sp_list), wec.data_length-12, 2])
-forecast_arr = np.zeros(12)
-
-for i in range(len(wt_list)):
-    wt = wt_list[i]
-    wind_turbine_specs = {
-        "cut_in": 13, # km/h
-        "rated_speed": 50, # km/h
-        "cut_out": 100, # km/h
-        "max_energy": 1000, # kW
-        "count": wt,
-        "cost": wt*1.5*10**6 # EUR/MW 
-        }
+def prep_forecast(parameters):
+    wt_list = parameters["wt_list"]
+    sp_list = parameters["sp_list"]
     
-    for j in range(len(sp_list)):
-        sp = sp_list[j]
-        solar_panel_specs = {
-            "area": sp, # m^2
-            "efficiency": 0.1,
-            "cost": sp*200/1.1 # $200/m2 (/1.1 eur to usd)
+    forecast_store = np.zeros([len(wt_list), len(sp_list), wec.data_length-12, 2])
+    forecast_arr = np.zeros(12)
+    
+    for i in range(len(wt_list)):
+        wt = wt_list[i]
+        wind_turbine_specs = {
+            "cut_in": 13, # km/h
+            "rated_speed": 50, # km/h
+            "cut_out": 100, # km/h
+            "max_energy": 1000, # kW
+            "count": wt,
+            "cost": wt*1.5*10**6 # EUR/MW 
             }
-
-        for hour in range(wec.data_length-12):
-            for k in range(12): 
-                future_state = wec.Hourly_state(hour+k+1, solar_panel_specs, wind_turbine_specs)
-                forecast_arr[k] = wec.calc_generated_kw(future_state)
-            
-                forecast_store[i][j][hour][0] = sum(forecast_arr[0:6])
-                forecast_store[i][j][hour][1] = sum(forecast_arr[6:13])
+        
+        for j in range(len(sp_list)):
+            sp = sp_list[j]
+            solar_panel_specs = {
+                "area": sp, # m^2
+                "efficiency": 0.1,
+                "cost": sp*200/1.1 # $200/m2 (/1.1 eur to usd)
+                }
+    
+            for hour in range(wec.data_length-12):
+                for k in range(12): 
+                    future_state = wec.Hourly_state(hour+k+1, solar_panel_specs, wind_turbine_specs)
+                    forecast_arr[k] = wec.calc_generated_kw(future_state)
                 
-end = time.time()
-print("Time elapsed: ", end - start2)
+                    forecast_store[i][j][hour][0] = sum(forecast_arr[0:6])
+                    forecast_store[i][j][hour][1] = sum(forecast_arr[6:13])
+                
+    return forecast_store
 
-#%% Run DOE scenarios to generate profit at different conditions
 
-def run_scenario(wt_level, sp_level, b_level, c1_level, c2_level, c3_level):
+# Run DOE scenario to generate profit at specified conditions in 'run'
+def run_scenario(forecast_store, parameters, run):
     
     start = time.time()
+    
+    wt_level = int(run["wt_level"])
+    sp_level = int(run["sp_level"])
+    b_level = int(run["b_level"])
+    c1_level = int(run["c1_level"])
+    c2_level = int(run["c2_level"])
+    c3_level = int(run["c3_level"])
+    
+    wt_list = parameters["wt_list"]
+    sp_list = parameters["sp_list"]
+    b_list = parameters["b_list"]
+    c1_list = parameters["c1_list"]
+    c2_list = parameters["c2_list"]
+    c3_list = parameters["c3_list"]
     
     wt = wt_list[wt_level]
     sp = sp_list[sp_level]
@@ -98,7 +80,6 @@ def run_scenario(wt_level, sp_level, b_level, c1_level, c2_level, c3_level):
     battery_specs = { 
         "max_charge": b, # kWh
         "cost": 1000*b
-
         }
 
     solar_panel_specs = {
@@ -203,47 +184,51 @@ def run_scenario(wt_level, sp_level, b_level, c1_level, c2_level, c3_level):
     
     return profit, revenue, opex, capex
 
+# This is the CPU intensive function that runs run_scenario function for each 
+# run in the DOE
+def run_doe(doe, parameters):
+    
+    doe[["profit", "revenue", "opex", "capex"]] = np.zeros([len(doe), 4])
+    forecast_store = prep_forecast(parameters)
+    
+    for i in range(len(doe)):
+        
+        run = doe.iloc[i]
+        
+        print("Run: ", i)
+        
+        profit, revenue, opex, capex = run_scenario(forecast_store, parameters, run)
+        doe["profit"][i] = profit
+        doe["revenue"][i] = revenue
+        doe["opex"][i] = opex
+        doe["capex"][i] = capex
+        
+    return doe
+
+
+# parameters for doe_results_202230706.csv
+parameters = {
+    "wt_list" : [0, 1], # number of 1MW wind turbines
+    "sp_list" : [5000, 10000, 15000], # area in m2 of solar panels
+    "b_list" : [516, 1144, 2288], # battery sizes in kW
+    "c1_list" : [-.05, 0.025, 0.1], # constants for r2_max eqn
+    "c2_list" : [-.05, 0.025, 0.1],
+    "c3_list" : [-2*10**(-5), 1*10**(-5), 4*10**(-5)]
+    }
 
 # DOE input is a 2-level full factorial plus a Box-Behnken to capture curvature
 doe = pd.read_excel("DOE.xlsx")
+doe.iloc[0]
 
-results_matrix = np.zeros([len(doe), 10])
-
-doe[["profit", "revenue", "opex", "capex"]] = np.zeros([len(doe), 4])
-
-for run in range(len(doe)):
+# Run DOE
+doe_results = run_doe(doe, parameters)
     
-    print("Run: ", run)
-    
-    wt_level = doe["wt_level"][run]
-    sp_level = doe["sp_level"][run]
-    b_level = doe["b_level"][run]
-    c1_level = doe["c1_level"][run]
-    c2_level = doe["c2_level"][run] 
-    c3_level = doe["c3_level"][run]
-    
-    profit, revenue, opex, capex = run_scenario(wt_level, 
-                                                sp_level, 
-                                                b_level, 
-                                                c1_level, 
-                                                c2_level, 
-                                                c3_level)
-    doe["profit"][run] = profit
-    doe["revenue"][run] = revenue
-    doe["opex"][run] = opex
-    doe["capex"][run] = capex
-
-end2 = time.time()    
-print("Time elapsed: ", end2 - start2)
-
 #%% Generate a model for profit as a function of the input parameters
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
 
-
-
-X = doe[["wt_level", "sp_level", "b_level", "c1_level", "c2_level", "c3_level"]]
-y = doe["profit"]
+X = doe_results[["wt_level", "sp_level", "b_level", "c1_level", "c2_level", "c3_level"]]
+y = doe_results["profit"]
 
 model = polyfeatures3 = PolynomialFeatures(degree=2)
 fit_tr_model = model.fit_transform(X)
@@ -311,10 +296,6 @@ x0 = [1,1,1,1,1,1]
 
 # constraints
 
-# def constraint1(x):
-    
-#     # wt = 0 or 1
-    
 def constraint1(x):
     
     # set wt to 1, as this is binary but it is clear that 1 is better than 0
