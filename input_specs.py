@@ -27,7 +27,13 @@ wind_turbine_specs = {
     }
 
 r2_max_constants = {
-    "c1": 0.05,
-    "c2": 0.05,
-    "c3": 2*10**(-5)
+    "c1": 0.2,
+    "c2": 0.2,
+    "c3": 4*10**(-5)
+    }
+
+b_sp_constants = {
+    "c1": 1, # when these become 2, it energy consumption gets choppier, and grid consumption remains about the same
+    "c2": 1,
+    "c3": 0
     }

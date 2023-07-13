@@ -13,13 +13,19 @@ import time
 import input_specs as ins
 import pandas as pd
 
+# Number of years the model spans
+years = 8
+
+# Capex lifetime to calculate value of capex per year
+capex_life = 10
+
 # Pre-calculate forecast data
 def prep_forecast(parameters):
     wt_list = parameters["wt_list"]
     sp_list = parameters["sp_list"]
     
-    forecast_store = np.zeros([len(wt_list), len(sp_list), wec.data_length-12, 2])
-    forecast_arr = np.zeros(12)
+    forecast_store = np.zeros([len(wt_list), len(sp_list), wec.data_length-6, 2])
+    forecast_arr = np.zeros(6)
     
     for i in range(len(wt_list)):
         wt = wt_list[i]
@@ -40,13 +46,13 @@ def prep_forecast(parameters):
                 "cost": sp*200/1.1 # $200/m2 (/1.1 eur to usd)
                 }
     
-            for hour in range(wec.data_length-12):
-                for k in range(12): 
+            for hour in range(wec.data_length-6):
+                for k in range(6): 
                     future_state = wec.Hourly_state(hour+k+1, solar_panel_specs, wind_turbine_specs)
                     forecast_arr[k] = wec.calc_generated_kw(future_state)
                 
-                    forecast_store[i][j][hour][0] = sum(forecast_arr[0:6])
-                    forecast_store[i][j][hour][1] = sum(forecast_arr[6:13])
+                    forecast_store[i][j][hour][0] = sum(forecast_arr[0:3])
+                    forecast_store[i][j][hour][1] = sum(forecast_arr[3:7])
                 
     return forecast_store
 
@@ -96,12 +102,18 @@ def run_scenario(forecast_store, parameters, run):
         "count": wt,
         "cost": wt*1.5*10**6 # EUR/MW 
         }
-
-    r2_max_constants = {
+    
+    b_sp_constants = {
         "c1": c1,
         "c2": c2,
         "c3": c3
         }
+
+    # r2_max_constants = {
+    #     "c1": c1,
+    #     "c2": c2,
+    #     "c3": c3
+    #     }
     
     # initialize counters
     e_from_grid = 0 # kwh
@@ -109,7 +121,7 @@ def run_scenario(forecast_store, parameters, run):
     e_to_grid = 0 # kwh
     e_to_grid_hourly = np.zeros([24,12]) # kw per hour per month
     total_renewable = 0 # kwh
-    total_renewable_hourly = np.zeros([24,12]) # kw per hour per month
+    #total_renewable_hourly = np.zeros([24,12]) # kw per hour per month
     total_sx = 0 # mol
     total_sx_monthly = np.zeros(12)
     
@@ -122,15 +134,16 @@ def run_scenario(forecast_store, parameters, run):
     energy_flow = wec.Energy_flow()
     energy_tally = pph
     r2_e_prev = 0
+    p_renew_tmin1 = 0
     
     # Calculate conditions at each hourly state and store in arrays
     for hour in range(wec.data_length-12):
         state = wec.Hourly_state(hour, ins.solar_panel_specs, ins.wind_turbine_specs)
         
         # Energy flowing to the plant
-        energy_generated = wec.calc_generated_kw(state)
-        total_renewable += energy_generated
-        total_renewable_hourly[state.hour_of_day][state.month-1] += energy_generated
+        p_renew_t_actual = wec.calc_generated_kw(state)
+        total_renewable += p_renew_t_actual
+        #total_renewable_hourly[state.hour_of_day][state.month-1] += p_renew_t_actual
         
         forecast = (forecast_store[wt_level][sp_level][hour][0],
                     forecast_store[wt_level][sp_level][hour][1])
@@ -139,14 +152,24 @@ def run_scenario(forecast_store, parameters, run):
         for i in range(pph):
             
             # Energy distribution for current period
-            energy_tally, r2_e_prev = wec.distribute_energy(energy_generated, 
+            energy_tally, r2_e_prev, energy_flow = wec.distribute_energy(p_renew_t_actual,
+                                                            p_renew_tmin1,
                                                             energy_tally, 
                                                             r2_e_prev, 
                                                             energy_flow, 
                                                             battery, 
+                                                            b_sp_constants,
                                                             reactor2,
-                                                            r2_max_constants, 
                                                             forecast)
+            
+            # energy_tally, r2_e_prev = wec.distribute_energy(energy_generated, 
+            #                                                 energy_tally, 
+            #                                                 r2_e_prev, 
+            #                                                 energy_flow, 
+            #                                                 battery, 
+            #                                                 reactor2,
+            #                                                 r2_max_constants, 
+            #                                                 forecast)
             
             # Update battery charge
             battery.charge += wec.battery_charge_differential(energy_flow.to_battery, battery)
@@ -165,30 +188,36 @@ def run_scenario(forecast_store, parameters, run):
             if energy_flow.from_grid < 0:
                 e_to_grid -= energy_flow.from_grid/pph
                 e_to_grid_hourly[state.hour_of_day][state.month-1] -= energy_flow.from_grid/pph
+                
+        p_renew_tmin1 = p_renew_t_actual
     
     # spread capex cost over 10 years, so cost per year is always /10
-    capex = (battery_specs["cost"] + solar_panel_specs["cost"] + wind_turbine_specs["cost"])/10
-    revenue = (9.6*total_sx + 0.1*e_to_grid)/8 # divide by 8 years because 8 years of training data, -> revenue / year
+    capex = (battery_specs["cost"] + solar_panel_specs["cost"] + wind_turbine_specs["cost"])/capex_life
+    
+    # Target production is 240 kmol S per year. So, assume that S above this 
+    # value is worth 0. Otherwise, it always becomes advantageous to produce more
+    # S, even if we just use grid energy to do it.
+    revenue = (9.6*min(total_sx, 240000*years) + 0.1*e_to_grid)/years # divide by 8 years because 8 years of training data, -> revenue / year
     
     # Roughly 15 kW required to make 1 mol S, so changing coef to .75 instead of .25
     # will make it a little unfavorable to buy from grid to make Sx.
     # With .75 coef there was still a favor of using grid energy to make Sx, but 
     # Somewhat less so, since the battery was large in the optimal configureation
     # 3rd attempt now with higher penalty at 1.25
-    opex = 1.25*e_from_grid/8 # divide by 8 years because 8 years of training data, -> opex / year
+    opex = 0.25*e_from_grid/years # divide by 8 years because 8 years of training data, -> opex / year
     
     profit = revenue - opex - capex
     
     end = time.time()
     print("Time elapsed: ", end - start)
     
-    return profit, revenue, opex, capex
+    return profit, revenue, opex, capex, total_sx, e_to_grid, e_from_grid
 
 # This is the CPU intensive function that runs run_scenario function for each 
 # run in the DOE
 def run_doe(doe, parameters):
     
-    doe[["profit", "revenue", "opex", "capex"]] = np.zeros([len(doe), 4])
+    doe[["profit", "revenue", "opex", "capex", "total_sx", "e_to_grid", "e_from_grid"]] = np.zeros([len(doe), 7])
     forecast_store = prep_forecast(parameters)
     
     for i in range(len(doe)):
@@ -197,23 +226,36 @@ def run_doe(doe, parameters):
         
         print("Run: ", i)
         
-        profit, revenue, opex, capex = run_scenario(forecast_store, parameters, run)
+        profit, revenue, opex, capex, total_sx, e_to_grid, e_from_grid = run_scenario(forecast_store, parameters, run)
         doe["profit"][i] = profit
         doe["revenue"][i] = revenue
         doe["opex"][i] = opex
         doe["capex"][i] = capex
+        doe["total_sx"][i] = total_sx
+        doe["e_to_grid"][i] = e_to_grid
+        doe["e_from_grid"][i] = e_from_grid
         
     return doe
 
 
-# parameters for doe_results_202230706.csv
+# # parameters for doe_results_202230706.csv
+# parameters = {
+#     "wt_list" : [0, 1], # number of 1MW wind turbines
+#     "sp_list" : [5000, 10000, 15000], # area in m2 of solar panels
+#     "b_list" : [516, 1144, 2288], # battery sizes in kW
+#     "c1_list" : [-.05, 0.025, 0.1], # constants for r2_max eqn
+#     "c2_list" : [-.05, 0.025, 0.1],
+#     "c3_list" : [-2*10**(-5), 1*10**(-5), 4*10**(-5)]
+#     }
+
+# parameters for doe_results_202230713.csv
 parameters = {
     "wt_list" : [0, 1], # number of 1MW wind turbines
     "sp_list" : [5000, 10000, 15000], # area in m2 of solar panels
     "b_list" : [516, 1144, 2288], # battery sizes in kW
-    "c1_list" : [-.05, 0.025, 0.1], # constants for r2_max eqn
-    "c2_list" : [-.05, 0.025, 0.1],
-    "c3_list" : [-2*10**(-5), 1*10**(-5), 4*10**(-5)]
+    "c1_list" : [0, 1, 2], # constants for r2_max eqn
+    "c2_list" : [0, 1, 2],
+    "c3_list" : [-1, 0, 1]
     }
 
 # DOE input is a 2-level full factorial plus a Box-Behnken to capture curvature
@@ -222,7 +264,18 @@ doe.iloc[0]
 
 # Run DOE
 doe_results = run_doe(doe, parameters)
-    
+
+'''
+The results looked strange at first: there was always a large excess of Sx produced,
+Despite that not being beneficial for the revenue. Furthermore, it seemed that, in some cases,
+The area of solar panels or even the presence of a wind turbine had no or very minimal impact
+on the Sx produced, or even the energy required from the grid.
+I ran the app at low sp area, and it looks like at these levels the plant stays at
+r2_min (at least in winter). This means, that running constantly at r2_min is 
+sufficient to generate enough Sx to satisfy demand.
+I'll need adust the energy -> Sx equation
+'''
+
 #%% Generate a model for profit as a function of the input parameters
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
@@ -262,12 +315,15 @@ est = sm.OLS(y, X_labeled)
 est_fit = est.fit()
 print(est_fit.summary())
 
+#%%
+
 # for data in doe = doe_results_20230706, p < 0.10 (significant) are:
-# wt, wt^2, wt*c1, wt*c2, wt*c3, b*c3
+# those in the factors_reduced list below
 # run again with only these factors + 1st-order terms that appear
 
-factors_reduced = ["const", "wt", "b", "c1", "c2", "c3", 
-                   "wt^2", "wt*c1", "wt*c2", "wt*c3", "b*c3"]
+factors_reduced = ["const", "wt", "sp", "b", "c1", "c2", "c3", 
+           "b^2", "b*c1","b*c2","b*c3",
+           "c1^2", "c1*c2", "c1*c3", "c2^2", "c2*c3"]
 
 X_labeled2 = X_labeled[factors_reduced]
 
@@ -276,6 +332,7 @@ est2 = sm.OLS(y, X_labeled2)
 est_fit2 = est2.fit()
 print(est_fit2.summary())
 
+#%% Not yet updated
 # All terms have p < 0.10 except for c3, but we leave it in because it's part of interaction terms
 coefs = est_fit2.params
 
@@ -283,10 +340,11 @@ lr_model2 = LinearRegression().fit(X_labeled2, y)
 
 # objective function is lr_model2.predict(x), but we need to change maximization problem
 # to a minimization:
-def objective(x):
+def objective(x): 
     y = coefs[0] + coefs[1]*x[1] + coefs[2]*x[2] + coefs[3]*x[3] + coefs[4]*x[4] \
-        + coefs[5]*x[5] + coefs[6]*x[1]**2 + coefs[7]*x[1]*x[3] + coefs[8]*x[1]*x[4] \
-        + coefs[9]*x[1]*x[5] + coefs[10]*x[2]*x[5]
+        + coefs[5]*x[5] + coefs[6]*x[6] + coefs[7]*x[3]**2 + coefs[8]*x[3]*x[4] + coefs[9]*x[3]*x[5] \
+        + coefs[10]*x[3]*x[6] + coefs[11]*x[4]**2 + coefs[12]*x[4]*x[5] + coefs[13]*x[4]*x[6] \
+        + coefs[14]*x[5]**2 + coefs[15]*x[5]*x[6]
     return -y
 
 test = [objective(X_labeled2.loc[x][:6]) for x in range(len(X_labeled2))]

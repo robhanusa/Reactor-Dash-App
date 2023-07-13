@@ -46,6 +46,10 @@ r1_1_state = ["idle"]*(num_periods)
 r1_2_state = ["idle"]*(num_periods)
 r1_3_state = ["idle"]*(num_periods)
 
+bat_sp_arr = np.zeros(num_periods)
+e_t_arr = np.zeros(num_periods)
+d_arr = np.zeros(num_periods)
+
 # Initiate necessary variables
 r2_prev = 0 
 sx_sat_prev = 0
@@ -62,18 +66,21 @@ energy_flow = wec.Energy_flow()
 energy_tally = pph
 r2_e_prev = 0
 
+test = np.zeros([num_periods, 8])
+
 forecast_arr = np.zeros(12)
 
 # Calculate conditions at each hourly state and store in arrays
 for hour in range(wec.data_length-12):
     state = wec.Hourly_state(hour, ins.solar_panel_specs, ins.wind_turbine_specs)
 
+
     # Forecast data
-    for j in range(12):
+    for j in range(6):
         future_state = wec.Hourly_state(hour+j+1, ins.solar_panel_specs, ins.wind_turbine_specs)
         forecast_arr[j] = wec.calc_generated_kw(future_state)
     
-    forecast = (sum(forecast_arr[0:6]), sum(forecast_arr[6:13]))
+    forecast = (sum(forecast_arr[0:3]), sum(forecast_arr[3:7]))
     
     # Allow for multiple periods per hour
     for i in range(pph):
@@ -84,14 +91,40 @@ for hour in range(wec.data_length-12):
         generated_kw[period] = energy_generated
         
         # Energy distribution for current period
-        energy_tally, r2_e_prev = wec.distribute_energy(energy_generated, 
+        
+        energy_tally, r2_e_prev, energy_flow = wec.distribute_energy(energy_generated,
+                                                        generated_kw[period-pph],
                                                         energy_tally, 
                                                         r2_e_prev, 
                                                         energy_flow, 
                                                         battery, 
+                                                        ins.b_sp_constants,
                                                         reactor2,
-                                                        ins.r2_max_constants,
                                                         forecast)
+        
+        # energy_tally, r2_e_prev, bat_sp, p_total,p_max,p_renew_tmin1,e_t,d = wec.distribute_energy(energy_generated,
+        #                                                 generated_kw[period-pph],
+        #                                                 energy_tally, 
+        #                                                 r2_e_prev, 
+        #                                                 energy_flow, 
+        #                                                 battery, 
+        #                                                 ins.b_sp_constants,
+        #                                                 reactor2, 
+        #                                                 ins.r2_max_constants, 
+        #                                                 forecast)
+        
+        # bat_sp_arr[period] = bat_sp
+        # e_t_arr[period] = e_t
+        # d_arr[period] = d
+        
+        # test[period][0] = bat_sp
+        # test[period][1] = p_total
+        # test[period][2] = p_max
+        # test[period][3] = p_renew_tmin1
+        # test[period][4] = e_t
+        # test[period][5] = d
+        # test[period][6] = energy_generated
+        # test[period][7] = energy_flow.to_r1 + energy_flow.to_r2 + energy_flow.to_condenser
         
         # Update battery charge
         battery.charge += wec.battery_charge_differential(energy_flow.to_battery, battery)
@@ -164,9 +197,9 @@ fig_r2.add_trace(go.Scatter(x=[], y=[], mode= "lines", name="Energy input"),
                      row=1, col=1, secondary_y=True)
 fig_r2.update_xaxes(title_text="Minutes before present", range=[-500,0],
                           row=1, col=1)
-fig_r2.update_yaxes(title_text="mol Sx per hour", range=[0,100], 
+fig_r2.update_yaxes(title_text="mol Sx per hour", range=[0,200], 
                     secondary_y=False, row=1, col=1)
-fig_r2.update_yaxes(title_text="kW", range=[0,600], 
+fig_r2.update_yaxes(title_text="kW", range=[0,1200], 
                     secondary_y=True, row=1, col=1)
 fig_r2.update_layout(title_text="Sx production over time", title_x=0.5,
                      title=dict(yref="paper", 
@@ -387,7 +420,7 @@ def update(n_intervals, start_watch, counter):
                 round(kw_gen,1), 
                 round(grid_e[period],1), 
                 round(r1_e[period],2), 
-                round(r2_e[period],2),
+                round(r2_e[period],1),
                 round(condenser_e[period],2), 
                 img_r1_status,
                 fig_lvl_r1_1, 
@@ -433,9 +466,11 @@ for hour in range(wec.data_length-12):
     state = wec.Hourly_state(hour, ins.solar_panel_specs, ins.wind_turbine_specs)
     
     # Forecast data
-    for j in range(12):
+    for j in range(6):
         future_state = wec.Hourly_state(hour+j+1, ins.solar_panel_specs, ins.wind_turbine_specs)
         forecast_arr[j] = wec.calc_generated_kw(future_state)
+    
+    forecast = (sum(forecast_arr[0:3]), sum(forecast_arr[3:7]))
     
     # Allow for multiple periods per hour
     for i in range(pph):
@@ -446,13 +481,14 @@ for hour in range(wec.data_length-12):
         total_renewable_hourly[state.hour_of_day][state.month-1] += energy_generated/pph
         
         # Energy distribution for current period
-        energy_tally, r2_e_prev = wec.distribute_energy(energy_generated, 
+        energy_tally, r2_e_prev, energy_flow = wec.distribute_energy(energy_generated,
+                                                        generated_kw[period-pph],
                                                         energy_tally, 
                                                         r2_e_prev, 
                                                         energy_flow, 
                                                         battery, 
+                                                        ins.b_sp_constants,
                                                         reactor2,
-                                                        ins.r2_max_constants,
                                                         forecast)
         
         # Update battery charge
