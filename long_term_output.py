@@ -10,7 +10,6 @@ import plant_components as pc
 from plant_components import pph
 import weather_energy_components as wec
 import time
-import input_specs as ins
 import pandas as pd
 
 # Number of years the model spans
@@ -18,6 +17,12 @@ years = 8
 
 # Capex lifetime to calculate value of capex per year
 capex_life = 10
+
+sx_test = np.zeros(wec.data_length-12)
+e_to_r2 = np.zeros(wec.data_length-12)
+r2_prev_test = np.zeros(wec.data_length-12)
+
+test_arr_lto = [[0]*9]*(wec.data_length-12)
 
 # Pre-calculate forecast data
 def prep_forecast(parameters):
@@ -51,8 +56,8 @@ def prep_forecast(parameters):
                     future_state = wec.Hourly_state(hour+k+1, solar_panel_specs, wind_turbine_specs)
                     forecast_arr[k] = wec.calc_generated_kw(future_state)
                 
-                    forecast_store[i][j][hour][0] = sum(forecast_arr[0:3])
-                    forecast_store[i][j][hour][1] = sum(forecast_arr[3:7])
+                forecast_store[i][j][hour][0] = sum(forecast_arr[0:3])
+                forecast_store[i][j][hour][1] = sum(forecast_arr[3:7])
                 
     return forecast_store
 
@@ -109,21 +114,16 @@ def run_scenario(forecast_store, parameters, run):
         "c3": c3
         }
 
-    # r2_max_constants = {
-    #     "c1": c1,
-    #     "c2": c2,
-    #     "c3": c3
-    #     }
     
     # initialize counters
     e_from_grid = 0 # kwh
-    e_from_grid_hourly = np.zeros([24,12]) # kw per hour per month
+    #e_from_grid_hourly = np.zeros([24,12]) # kw per hour per month
     e_to_grid = 0 # kwh
-    e_to_grid_hourly = np.zeros([24,12]) # kw per hour per month
+    #e_to_grid_hourly = np.zeros([24,12]) # kw per hour per month
     total_renewable = 0 # kwh
     #total_renewable_hourly = np.zeros([24,12]) # kw per hour per month
     total_sx = 0 # mol
-    total_sx_monthly = np.zeros(12)
+    #total_sx_monthly = np.zeros(12)
     
     # Initiate necessary variables
     r2_prev = 0 
@@ -138,7 +138,7 @@ def run_scenario(forecast_store, parameters, run):
     
     # Calculate conditions at each hourly state and store in arrays
     for hour in range(wec.data_length-12):
-        state = wec.Hourly_state(hour, ins.solar_panel_specs, ins.wind_turbine_specs)
+        state = wec.Hourly_state(hour, solar_panel_specs, wind_turbine_specs)
         
         # Energy flowing to the plant
         p_renew_t_actual = wec.calc_generated_kw(state)
@@ -151,6 +151,16 @@ def run_scenario(forecast_store, parameters, run):
         # Allow for multiple periods per hour
         for i in range(pph):
             
+            # test_arr_lto[hour*pph+i][0] = p_renew_t_actual
+            # test_arr_lto[hour*pph+i][1] = p_renew_tmin1
+            # test_arr_lto[hour*pph+i][2] = energy_tally
+            # test_arr_lto[hour*pph+i][3] = r2_e_prev
+            # test_arr_lto[hour*pph+i][4] = energy_flow
+            # test_arr_lto[hour*pph+i][5] = battery
+            # test_arr_lto[hour*pph+i][6] = b_sp_constants
+            # test_arr_lto[hour*pph+i][7] = reactor2
+            # test_arr_lto[hour*pph+i][8] = forecast
+            
             # Energy distribution for current period
             energy_tally, r2_e_prev, energy_flow = wec.distribute_energy(p_renew_t_actual,
                                                             p_renew_tmin1,
@@ -162,14 +172,6 @@ def run_scenario(forecast_store, parameters, run):
                                                             reactor2,
                                                             forecast)
             
-            # energy_tally, r2_e_prev = wec.distribute_energy(energy_generated, 
-            #                                                 energy_tally, 
-            #                                                 r2_e_prev, 
-            #                                                 energy_flow, 
-            #                                                 battery, 
-            #                                                 reactor2,
-            #                                                 r2_max_constants, 
-            #                                                 forecast)
             
             # Update battery charge
             battery.charge += wec.battery_charge_differential(energy_flow.to_battery, battery)
@@ -177,17 +179,22 @@ def run_scenario(forecast_store, parameters, run):
             # Calculate reactor 2 state
             r2_sx_current = reactor2.react(energy_flow.to_r2, r2_prev)
             total_sx += r2_sx_current/pph
+            # e_to_r2[hour*pph+i] = energy_flow.to_r2
+            # r2_prev_test[hour*pph+i] = r2_prev
+            # sx_test[hour*pph+i] = r2_sx_current/pph
+            
             r2_prev = r2_sx_current
-            total_sx_monthly[state.month-1] += r2_sx_current/pph
+            #total_sx_monthly[state.month-1] += r2_sx_current/pph
+            
             
             # Add up energy taken from grid
             if energy_flow.from_grid > 0:
                 e_from_grid += energy_flow.from_grid/pph
-                e_from_grid_hourly[state.hour_of_day][state.month-1] += energy_flow.from_grid/pph
+                # e_from_grid_hourly[state.hour_of_day][state.month-1] += energy_flow.from_grid/pph
                 
             if energy_flow.from_grid < 0:
                 e_to_grid -= energy_flow.from_grid/pph
-                e_to_grid_hourly[state.hour_of_day][state.month-1] -= energy_flow.from_grid/pph
+                # e_to_grid_hourly[state.hour_of_day][state.month-1] -= energy_flow.from_grid/pph
                 
         p_renew_tmin1 = p_renew_t_actual
     
@@ -235,20 +242,8 @@ def run_doe(doe, parameters):
         doe["e_to_grid"][i] = e_to_grid
         doe["e_from_grid"][i] = e_from_grid
         
-    return doe
+    return doe, forecast_store
 
-
-# # parameters for doe_results_202230706.csv
-# parameters = {
-#     "wt_list" : [0, 1], # number of 1MW wind turbines
-#     "sp_list" : [5000, 10000, 15000], # area in m2 of solar panels
-#     "b_list" : [516, 1144, 2288], # battery sizes in kW
-#     "c1_list" : [-.05, 0.025, 0.1], # constants for r2_max eqn
-#     "c2_list" : [-.05, 0.025, 0.1],
-#     "c3_list" : [-2*10**(-5), 1*10**(-5), 4*10**(-5)]
-#     }
-
-# parameters for doe_results_202230713.csv
 parameters = {
     "wt_list" : [0, 1], # number of 1MW wind turbines
     "sp_list" : [5000, 10000, 15000], # area in m2 of solar panels
@@ -260,70 +255,51 @@ parameters = {
 
 # DOE input is a 2-level full factorial plus a Box-Behnken to capture curvature
 doe = pd.read_excel("DOE.xlsx")
-doe.iloc[0]
+#doe.iloc[0]
 
 # Run DOE
-doe_results = run_doe(doe, parameters)
-
-'''
-The results looked strange at first: there was always a large excess of Sx produced,
-Despite that not being beneficial for the revenue. Furthermore, it seemed that, in some cases,
-The area of solar panels or even the presence of a wind turbine had no or very minimal impact
-on the Sx produced, or even the energy required from the grid.
-I ran the app at low sp area, and it looks like at these levels the plant stays at
-r2_min (at least in winter). This means, that running constantly at r2_min is 
-sufficient to generate enough Sx to satisfy demand.
-I'll need adust the energy -> Sx equation
-'''
-
+doe_results, forecast_store = run_doe(doe, parameters)
 #%% Generate a model for profit as a function of the input parameters
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
-
-X = doe_results[["wt_level", "sp_level", "b_level", "c1_level", "c2_level", "c3_level"]]
-y = doe_results["profit"]
-
-model = polyfeatures3 = PolynomialFeatures(degree=2)
-fit_tr_model = model.fit_transform(X)
-lr_model = LinearRegression()
-lr_model.fit(fit_tr_model, y)
-
-# These results show that the most profitable is highest levels on sp, wt, and
-# All c constants, and lowest level on battery. Basically, it was most profitable
-# to purchase a lot of grid energy to produce Sx
-# Next, I'll try to allow negative c values, and do a higher penalty for grid energy
-# Also, changing to ave profit / year, and spread cost of capex out over 10 years.
-
-# Re-ran with higher penalty for grid energy. Now the maximum profit is at the 
-# max for all capex and all c's. The grid energy expenditure is higher than most,
-# but not astronomical like the last version (likely because we use a large battery
-# here)
-
-#%% Optimization: find parameter values that maximize profit
 import statsmodels.api as sm
 from scipy.optimize import minimize
 
-factors = ["const", "wt", "sp", "b", "c1", "c2", "c3", 
-           "wt^2", "wt*sp", "wt*b", "wt*c1", "wt*c2", "wt*c3",
-           "sp^2", "sp*b", "sp*c1", "sp*c2", "sp*c3",
-           "b^2", "b*c1","b*c2","b*c3",
-           "c1^2", "c1*c2", "c1*c3", "c2^2", "c2*c3", "c3^2"]
-
-X_labeled = pd.DataFrame(fit_tr_model, columns=factors)
-
-est = sm.OLS(y, X_labeled)
-est_fit = est.fit()
-print(est_fit.summary())
+def summarize_fit(doe_results):
+    X = doe_results[["wt_level", "sp_level", "b_level", "c1_level", "c2_level", "c3_level"]]
+    y = doe_results["profit"]
+    
+    model = PolynomialFeatures(degree=2)
+    fit_tr_model = model.fit_transform(X)
+    lr_model = LinearRegression()
+    lr_model.fit(fit_tr_model, y)
+    
+    
+    
+    factors = ["const", "wt", "sp", "b", "c1", "c2", "c3", 
+               "wt^2", "wt*sp", "wt*b", "wt*c1", "wt*c2", "wt*c3",
+               "sp^2", "sp*b", "sp*c1", "sp*c2", "sp*c3",
+               "b^2", "b*c1","b*c2","b*c3",
+               "c1^2", "c1*c2", "c1*c3", "c2^2", "c2*c3", "c3^2"]
+    
+    X_labeled = pd.DataFrame(fit_tr_model, columns=factors)
+    
+    est = sm.OLS(y, X_labeled)
+    est_fit = est.fit()
+    print(est_fit.summary())
+    return X_labeled, y
 
 #%%
 
-# for data in doe = doe_results_20230706, p < 0.10 (significant) are:
+# for data in doe, p < 0.05 (significant) are:
 # those in the factors_reduced list below
 # run again with only these factors + 1st-order terms that appear
 
+X_labeled, y = summarize_fit(doe_results)
+
 factors_reduced = ["const", "wt", "sp", "b", "c1", "c2", "c3", 
-           "b^2", "b*c1","b*c2","b*c3",
-           "c1^2", "c1*c2", "c1*c3", "c2^2", "c2*c3"]
+           "wt^2", "wt*sp", "wt*b", "wt*c1", "wt*c2", "wt*c3",
+           "sp^2", "sp*b", "b^2",]
 
 X_labeled2 = X_labeled[factors_reduced]
 
@@ -332,8 +308,10 @@ est2 = sm.OLS(y, X_labeled2)
 est_fit2 = est2.fit()
 print(est_fit2.summary())
 
-#%% Not yet updated
-# All terms have p < 0.10 except for c3, but we leave it in because it's part of interaction terms
+#%%
+
+import sklearn.metrics as metrics 
+
 coefs = est_fit2.params
 
 lr_model2 = LinearRegression().fit(X_labeled2, y)
@@ -342,15 +320,18 @@ lr_model2 = LinearRegression().fit(X_labeled2, y)
 # to a minimization:
 def objective(x): 
     y = coefs[0] + coefs[1]*x[1] + coefs[2]*x[2] + coefs[3]*x[3] + coefs[4]*x[4] \
-        + coefs[5]*x[5] + coefs[6]*x[6] + coefs[7]*x[3]**2 + coefs[8]*x[3]*x[4] + coefs[9]*x[3]*x[5] \
-        + coefs[10]*x[3]*x[6] + coefs[11]*x[4]**2 + coefs[12]*x[4]*x[5] + coefs[13]*x[4]*x[6] \
-        + coefs[14]*x[5]**2 + coefs[15]*x[5]*x[6]
+        + coefs[5]*x[5] + coefs[6]*x[6] + coefs[7]*x[1]**2 + coefs[8]*x[1]*x[2] + coefs[9]*x[1]*x[3] \
+        + coefs[10]*x[1]*x[4] + coefs[11]*x[1]*x[5] + coefs[12]*x[1]*x[6] + coefs[13]*x[2]**2 \
+        + coefs[14]*x[2]*x[3] + coefs[15]*x[3]**2
     return -y
 
-test = [objective(X_labeled2.loc[x][:6]) for x in range(len(X_labeled2))]
+y_pred = [-objective(X_labeled2.loc[x][:7]) for x in range(len(X_labeled2))]
+
+# test goodness of fit with coef of determination
+r_squared = metrics.r2_score(y, y_pred)
 
 # starting guess
-x0 = [1,1,1,1,1,1]
+x0 = [1,1,1,1,1,1,1]
 
 # constraints
 
@@ -366,7 +347,7 @@ def constraint1(x):
 
 def constraint2(x):
     
-    # b is between 0 and 2
+    # sp is between 0 and 2
     min_val = 0
     max_val = 2
     a1 = x[2] - min_val
@@ -376,7 +357,7 @@ def constraint2(x):
 
 def constraint3(x):
     
-    # c1 is between 0 and 2
+    # b is between 0 and 2
     min_val = 0
     max_val = 2
     a1 = x[3] - min_val
@@ -386,7 +367,7 @@ def constraint3(x):
 
 def constraint4(x):
     
-    # c2 is between 0 and 2
+    # c1 is between 0 and 2
     min_val = 0
     max_val = 2
     a1 = x[4] - min_val
@@ -396,11 +377,21 @@ def constraint4(x):
 
 def constraint5(x):
     
-    # c3 is between 0 and 2
+    # c2 is between 0 and 2
     min_val = 0
     max_val = 2
     a1 = x[5] - min_val
     a2 = max_val - x[5]
+    
+    return [a2, a1]
+
+def constraint6(x):
+    
+    # c3 is between 0 and 2
+    min_val = 0
+    max_val = 2
+    a1 = x[6] - min_val
+    a2 = max_val - x[6]
     
     return [a2, a1]
     
@@ -409,13 +400,265 @@ constraints = [{'type': 'ineq', 'fun': constraint1},
                {'type': 'ineq', 'fun': constraint3},
                {'type': 'ineq', 'fun': constraint4},
                {'type': 'ineq', 'fun': constraint5},
+               {'type': 'ineq', 'fun': constraint6}
               ]
 
 res = minimize(objective, x0, method='COBYLA', constraints = constraints)
 
-# Result is (1, 1, 2, 2, 2, 2) for ["const", "wt", "b", "c1", "c2", "c3"]
+parameters = {
+    "wt_list" : [0, 1], # number of 1MW wind turbines
+    "sp_list" : [5000, 10000, 15000], # area in m2 of solar panels
+    "b_list" : [516, 1144, 2288], # battery sizes in kW
+    "c1_list" : [0, 1, 2], # constants for r2_max eqn
+    "c2_list" : [0, 1, 2],
+    "c3_list" : [-1, 0, 1]
+    }
 
 res_x = res.x
 res_y = -objective(res_x)
-test_y = run_scenario(1, 1, 2, 2, 2, 2)
 
+
+
+run = pd.Series([1, 0, 0, 2, 0, 2], ["wt_level", "sp_level", "b_level", "c1_level",
+                                     "c2_level", "c3_level"])
+pred_profit, pred_revenue, pred_opex, pred_capex, pred_total_sx, pred_e_to_grid, \
+    pred_e_from_grid = run_scenario(forecast_store, parameters, run)
+
+#%% 2nd DOE
+# Since the optimal solution is at one corner of our DOE, I'm updating the 
+# parameter values to see if we can get a more optimal solution
+
+parameters2 = {
+    "wt_list" : [1, 2], # number of 1MW wind turbines
+    "sp_list" : [2000, 5000, 8000], # area in m2 of solar panels
+    "b_list" : [263, 516, 1144], # battery sizes in kW
+    "c1_list" : [1, 2, 3], # constants for r2_max eqn
+    "c2_list" : [-1, 0, 1],
+    "c3_list" : [0, 1, 2]
+    }
+
+# DOE input is a 2-level full factorial plus a Box-Behnken to capture curvature
+doe2 = pd.read_excel("DOE.xlsx")
+#doe.iloc[0]
+
+# Run DOE
+doe_results2, forecast_store = run_doe(doe2, parameters2)
+
+#%% Run with exactly 1 wind turbine
+# A 2nd wind turbine increases revenue by delivering a large amount of energy to
+# the grid. However, the goal of this plant is Sx production, so we're going to 
+# limit to 1 wind turbine and re-run the DOE, from DOE2.xlsx
+
+parameters3 = {
+    "wt_list" : [1, 1], # number of 1MW wind turbines
+    "sp_list" : [2000, 5000, 8000], # area in m2 of solar panels
+    "b_list" : [263, 516, 1144], # battery sizes in kW
+    "c1_list" : [1, 2, 3], # constants for r2_max eqn
+    "c2_list" : [-1, 0, 1],
+    "c3_list" : [0, 1, 2]
+    }
+
+# DOE input is a 2-level full factorial plus a Box-Behnken to capture curvature
+doe2 = pd.read_excel("DOE2.xlsx")
+#doe.iloc[0]
+
+# Run DOE
+doe_results2, forecast_store = run_doe(doe2, parameters3)
+
+X_labeled, y = summarize_fit(doe_results2)
+
+#%%
+factors_reduced2 = ["const", "sp", "b", "c2", "sp^2", "sp*b", "sp*c2", "b^2", "b*c2"]
+
+X_labeled2_2 = X_labeled[factors_reduced2]
+
+# run again
+est2 = sm.OLS(y, X_labeled2_2)
+est_fit2 = est2.fit()
+print(est_fit2.summary())
+
+#%%
+coefs = est_fit2.params
+
+lr_model2 = LinearRegression().fit(X_labeled2_2, y)
+
+# objective function is lr_model2.predict(x), but we need to change maximization problem
+# to a minimization:
+def objective2(x): 
+    y = coefs[0] + coefs[1]*x[1] + coefs[2]*x[2] + coefs[3]*x[3] + coefs[4]*x[1]**2 \
+        + coefs[5]*x[1]*x[2] + coefs[6]*x[1]*x[3] + coefs[7]*x[2]**2 + coefs[8]*x[2]*x[3]
+    return -y
+
+y_pred = [-objective2(X_labeled2_2.loc[x][:4]) for x in range(len(X_labeled2_2))]
+
+# test goodness of fit with coef of determination
+r_squared = metrics.r2_score(y, y_pred)
+
+#%% optimize # 2
+
+# starting guess
+x0 = [1,1,1,1]
+
+# constraints
+
+def constraint1_2(x):
+    
+    # sp is between 0 and 2
+    min_val = 0
+    max_val = 2
+    a1 = x[1] - min_val
+    a2 = max_val - x[1]
+    
+    return [a2, a1]
+
+def constraint2_2(x):
+    
+    # b is between 0 and 2
+    min_val = 0
+    max_val = 2
+    a1 = x[2] - min_val
+    a2 = max_val - x[2]
+    
+    return [a2, a1]
+
+def constraint3_2(x):
+    
+    # c2 is between 0 and 2
+    min_val = 0
+    max_val = 2
+    a1 = x[3] - min_val
+    a2 = max_val - x[3]
+    
+    return [a2, a1]
+
+    
+constraints = [{'type': 'ineq', 'fun': constraint1_2},
+               {'type': 'ineq', 'fun': constraint2_2},
+               {'type': 'ineq', 'fun': constraint3_2},
+              ]
+
+res = minimize(objective2, x0, method='COBYLA', constraints = constraints)
+
+res_x = res.x
+res_y = -objective2(res_x)
+
+'''
+Results of this new DOE are sp = 1.38, b = 0, and c2 = 1. 
+Since we're still on the edge for the battery, run again with a lower range for
+the battery. Will also shift sp to center around 1.38
+'''
+#%% Shifting range of sp and b and rerunning
+parameters3 = {
+    "wt_list" : [1, 1], # number of 1MW wind turbines
+    "sp_list" : [4000, 6500, 9000], # area in m2 of solar panels
+    "b_list" : [0, 263, 516], # battery sizes in kW
+    "c1_list" : [1, 2, 3], # constants for r2_max eqn
+    "c2_list" : [-1, 0, 1],
+    "c3_list" : [0, 1, 2]
+    }
+
+# DOE input is a 2-level full factorial plus a Box-Behnken to capture curvature
+doe2 = pd.read_excel("DOE2.xlsx")
+#doe.iloc[0]
+
+# Run DOE
+doe_results3, forecast_store = run_doe(doe2, parameters3)
+
+X_labeled, y = summarize_fit(doe_results3)
+
+#%%
+factors_reduced3 = ["const", "sp", "b", "c2", "sp^2", "sp*b", "sp*c2", "b^2", "b*c2"]
+
+X_labeled2_3 = X_labeled[factors_reduced3]
+
+# run again
+est2 = sm.OLS(y, X_labeled2_3)
+est_fit2 = est2.fit()
+print(est_fit2.summary())
+
+#%%
+# can reduce 2 more factors
+factors_reduced3 = ["const", "sp", "b", "c2", "sp^2", "sp*b", "sp*c2"]
+
+X_labeled2_3 = X_labeled[factors_reduced3]
+
+# run again
+est2 = sm.OLS(y, X_labeled2_3)
+est_fit2 = est2.fit()
+print(est_fit2.summary())
+
+#%%
+coefs = est_fit2.params
+
+lr_model2 = LinearRegression().fit(X_labeled2_3, y)
+
+# objective function is lr_model2.predict(x), but we need to change maximization problem
+# to a minimization:
+def objective3(x): 
+    y = coefs[0] + coefs[1]*x[1] + coefs[2]*x[2] + coefs[3]*x[3] + coefs[4]*x[1]**2 \
+        + coefs[5]*x[1]*x[2] + coefs[6]*x[1]*x[3]
+    return -y
+
+y_pred = [-objective3(X_labeled2_2.loc[x][:4]) for x in range(len(X_labeled2_2))]
+
+# test goodness of fit with coef of determination
+r_squared = metrics.r2_score(y, y_pred)
+
+#%% optimize # 2
+
+# starting guess
+x0 = [1,1,1,1]
+
+# constraints
+
+def constraint1_2(x):
+    
+    # sp is between 0 and 2
+    min_val = 0
+    max_val = 2
+    a1 = x[1] - min_val
+    a2 = max_val - x[1]
+    
+    return [a2, a1]
+
+def constraint2_2(x):
+    
+    # b is between 0 and 2
+    min_val = 0
+    max_val = 2
+    a1 = x[2] - min_val
+    a2 = max_val - x[2]
+    
+    return [a2, a1]
+
+def constraint3_2(x):
+    
+    # c2 is between 0 and 2
+    min_val = 0
+    max_val = 2
+    a1 = x[3] - min_val
+    a2 = max_val - x[3]
+    
+    return [a2, a1]
+
+    
+constraints = [{'type': 'ineq', 'fun': constraint1_2},
+               {'type': 'ineq', 'fun': constraint2_2},
+               {'type': 'ineq', 'fun': constraint3_2},
+              ]
+
+res = minimize(objective3, x0, method='COBYLA', constraints = constraints)
+
+res_x = res.x
+res_y = -objective3(res_x)
+
+
+'''
+according to this, sp is centered (1.04), and battery and c2 are at 0. Lower
+limit for battery was already 0, so we can't go any lower
+'''
+#%% test these parameters on the training data
+run = pd.Series([1, 1, 0, 1, 0, 1], ["wt_level", "sp_level", "b_level", "c1_level",
+                                     "c2_level", "c3_level"])
+opt_profit, opt_revenue, opt_opex, opt_capex, opt_total_sx, opt_e_to_grid, opt_e_from_grid \
+    = run_scenario(forecast_store, parameters3, run)

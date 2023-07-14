@@ -44,7 +44,7 @@ class Reactor2:
         
     @classmethod
     def ss_output(cls, energy):
-        return 16/(1 + math.exp(-energy/200 + 3)) - 0.7 #reduced this by a factor of 10
+        return 140/(1 + math.exp(-energy/200 + 3)) - 6 #reduced this by a factor of 10
     
     def react(cls, energy, prev):
         Reactor2.state = "active"

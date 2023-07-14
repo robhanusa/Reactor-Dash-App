@@ -70,6 +70,8 @@ test = np.zeros([num_periods, 8])
 
 forecast_arr = np.zeros(12)
 
+forecast_test = [0]*wec.data_length
+
 # Calculate conditions at each hourly state and store in arrays
 for hour in range(wec.data_length-12):
     state = wec.Hourly_state(hour, ins.solar_panel_specs, ins.wind_turbine_specs)
@@ -81,6 +83,7 @@ for hour in range(wec.data_length-12):
         forecast_arr[j] = wec.calc_generated_kw(future_state)
     
     forecast = (sum(forecast_arr[0:3]), sum(forecast_arr[3:7]))
+    forecast_test[hour]= forecast
     
     # Allow for multiple periods per hour
     for i in range(pph):
@@ -101,30 +104,6 @@ for hour in range(wec.data_length-12):
                                                         ins.b_sp_constants,
                                                         reactor2,
                                                         forecast)
-        
-        # energy_tally, r2_e_prev, bat_sp, p_total,p_max,p_renew_tmin1,e_t,d = wec.distribute_energy(energy_generated,
-        #                                                 generated_kw[period-pph],
-        #                                                 energy_tally, 
-        #                                                 r2_e_prev, 
-        #                                                 energy_flow, 
-        #                                                 battery, 
-        #                                                 ins.b_sp_constants,
-        #                                                 reactor2, 
-        #                                                 ins.r2_max_constants, 
-        #                                                 forecast)
-        
-        # bat_sp_arr[period] = bat_sp
-        # e_t_arr[period] = e_t
-        # d_arr[period] = d
-        
-        # test[period][0] = bat_sp
-        # test[period][1] = p_total
-        # test[period][2] = p_max
-        # test[period][3] = p_renew_tmin1
-        # test[period][4] = e_t
-        # test[period][5] = d
-        # test[period][6] = energy_generated
-        # test[period][7] = energy_flow.to_r1 + energy_flow.to_r2 + energy_flow.to_condenser
         
         # Update battery charge
         battery.charge += wec.battery_charge_differential(energy_flow.to_battery, battery)
