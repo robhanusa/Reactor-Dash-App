@@ -59,16 +59,14 @@ def prep_forecast(parameters):
 # Run DOE scenario to generate profit at specified conditions in 'run'
 def run_scenario(forecast_store, parameters, run):
     
-    start = time.time()
-    
-    # factor levels are between -1 and 1, but list indicies are 0-2, so need to
-    # add 1 to get index from level. wt is a special case because it's binary
-    wt_index = int(run["wt_level"])
-    sp_index = int(run["sp_level"]) + 1
-    b_index = int(run["b_level"]) + 1
-    c1_index = int(run["c1_level"]) + 1
-    c2_index = int(run["c2_level"]) + 1
-    c3_index = int(run["c3_level"]) + 1
+    # factor levels are between 0 and 2 to match indicies 
+    # wt is a special case because only 2 levels are considered
+    wt_index = int(run["wt_level"]) if int(run["wt_level"]) == 0 else 1
+    sp_index = int(run["sp_level"]) 
+    b_index = int(run["b_level"])
+    c1_index = int(run["c1_level"])
+    c2_index = int(run["c2_level"])
+    c3_index = int(run["c3_level"])
     
     wt_list = parameters["wt_list"]
     sp_list = parameters["sp_list"]
@@ -110,7 +108,6 @@ def run_scenario(forecast_store, parameters, run):
         "c3": c3
         }
 
-    
     # initialize counters
     e_from_grid = 0 # kwh
     e_to_grid = 0 # kwh
@@ -184,23 +181,22 @@ def run_scenario(forecast_store, parameters, run):
     
     profit = revenue - opex - capex
     
-    end = time.time()
-    print("Time elapsed: ", end - start)
-    
     return profit, revenue, opex, capex, total_sx, e_to_grid, e_from_grid
 
 # This is the CPU intensive function that runs run_scenario function for each 
 # run in the DOE
-def run_doe(doe, parameters):
+def run_doe(doe, parameters, forecast_store = 0, show_run_status = True ):
     
     doe[["profit", "revenue", "opex", "capex", "total_sx", "e_to_grid", "e_from_grid"]] = np.zeros([len(doe), 7])
-    forecast_store = prep_forecast(parameters)
+    
+    if not isinstance(forecast_store, np.ndarray):
+        forecast_store = prep_forecast(parameters)
     
     for i in range(len(doe)):
         
-        run = doe.iloc[i]
+        start = time.time()
         
-        print("Run: ", i)
+        run = doe.iloc[i]
         
         profit, revenue, opex, capex, total_sx, e_to_grid, e_from_grid = run_scenario(forecast_store, parameters, run)
         doe["profit"][i] = profit
@@ -210,6 +206,12 @@ def run_doe(doe, parameters):
         doe["total_sx"][i] = total_sx
         doe["e_to_grid"][i] = e_to_grid
         doe["e_from_grid"][i] = e_from_grid
+        
+        end = time.time()
+        
+        if show_run_status: 
+            print("Run: ", i)
+            print("Time elapsed: ", end - start)
         
     return doe, forecast_store
 
@@ -224,16 +226,14 @@ parameters = {
 
 # DOE input is a 2-level full factorial plus a Box-Behnken to capture curvature
 doe = pd.read_excel("DOE.xlsx")
-#doe.iloc[0]
 
 # Run DOE
-doe_results, forecast_store = run_doe(doe, parameters)
+doe_results, forecast_store = run_doe(doe, parameters) #, forecast_store)
 
 #%% Generate a model for profit as a function of the input parameters
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
 import statsmodels.api as sm
-from scipy.optimize import minimize
 import re
 import gurobipy as gp
 from gurobipy import GRB
@@ -264,7 +264,7 @@ def fit_results(doe_results):
 def fit_sig_results(X_labeled, y, est_fit):
     
     # filter non-significant factors
-    sig_factors = est_fit.pvalues[est_fit.pvalues <= 0.05].index
+    sig_factors = list(est_fit.pvalues[est_fit.pvalues <= 0.05].index)
     
     # Ensure all 1st-order terms are present if they're in a higher-level term
     # Start with squared terms
@@ -272,7 +272,7 @@ def fit_sig_results(X_labeled, y, est_fit):
         if "^" in factor:
             first_order_term = re.search("^[a-z0-9]*",factor).group(0)  
             if first_order_term not in sig_factors:
-                sig_factors = sig_factors.append(first_order_term)
+                sig_factors.append(first_order_term)
         
         # Ensure all 1st-order terms from interactions are present
         if "*" in factor:
@@ -280,7 +280,7 @@ def fit_sig_results(X_labeled, y, est_fit):
             first_order_term2 = re.search("[a-z0-9]*$",factor).group(0)
             for first_order_term in (first_order_term1, first_order_term2):
                 if first_order_term not in sig_factors:
-                    sig_factors = sig_factors.append(first_order_term)    
+                    sig_factors.append(first_order_term)    
     
     # Create new df of significant factors
     X_sig = X_labeled[sig_factors]
@@ -294,443 +294,158 @@ def fit_sig_results(X_labeled, y, est_fit):
     
     return X_sig, est_sig_fit
 
-# Fit results on all factors
-X_labeled, y, est_fit = fit_results(doe_results)  
+# Generate a pd.Series of coefficients for only the significant factors and 
+# their 1st-order terms
+def generate_sig_model(doe_results):
+    
+    # Fit results on all factors
+    X_labeled, y, est_fit = fit_results(doe_results)  
+    
+    est_fit_old = est_fit
+    
+    # Re-fit results on only significant factors (and their first order components)
+    X_sig, est_sig_fit = fit_sig_results(X_labeled, y, est_fit)
+    
+    # Keep eliminating factors until there is no change in the set of factors
+    break_counter = 0
+    while len(est_fit_old.pvalues) != len(est_sig_fit.pvalues) and break_counter < 10:
+        break_counter += 1
+        est_fit_old = est_sig_fit
+        X_sig, est_sig_fit = fit_sig_results(X_sig, y, est_sig_fit)
+    
+    coefs = est_sig_fit.params
+    
+    return coefs
 
-est_fit_old = est_fit
-
-# Re-fit results on only significant factors (and their first order components)
-X_sig, est_sig_fit = fit_sig_results(X_labeled, y, est_fit)
-
-# Keep eliminating factors until there is no change in the set of factors
-break_counter = 0
-while len(est_fit_old.pvalues) != len(est_sig_fit.pvalues) and break_counter < 10:
-    break_counter += 1
-    est_fit_old = est_sig_fit
-    X_sig, est_sig_fit = fit_sig_results(X_sig, y, est_sig_fit)
-
-coefs = est_sig_fit.params
-
+coefs = generate_sig_model(doe_results)
 
 #%% Create Gurobi model to optimize DOE results
-model = gp.Model()
-model.setParam('NonConvex', 2) # To allow for quadratic equality constraints
 
-factors_dict = {}
-
-# Create gurobi variables
-for factor in est_sig_fit.pvalues.index:
-    if factor == 'wt':
-        factors_dict[factor] = model.addVar(vtype=GRB.BINARY, name=factor)
-    elif '^' not in factor and '*' not in factor:
-        factors_dict[factor] = model.addVar(vtype=GRB.CONTINUOUS, lb=-1, ub=1, name=factor)
-    else:
-        factors_dict[factor] = model.addVar(vtype=GRB.CONTINUOUS, name=factor)
-
-# Add equality constraints
-for f in factors_dict:
-    if f == 'const': # Must maintain constant term, constrain this to 1
-        factor = factors_dict[f]
-        model.addConstr(factor == 1)
-    if '^' in f: # Squared terms must be equal to the square of the first-order term
-        first_order_f = re.search("^[a-z0-9]*", str(f)).group(0) 
-        first_order_factor = factors_dict[first_order_f]
-        factor = factors_dict[f]
-        model.addConstr(factor == first_order_factor**2)
-    if '*' in f: # Interaction terms must be the product of the first-order terms
-        first_order_f1 = re.search("^[a-z0-9]*", str(f)).group(0)
-        first_order_f2 = re.search("[a-z0-9]*$", str(f)).group(0)
-        first_order_factor1 = factors_dict[first_order_f1]
-        first_order_factor2 = factors_dict[first_order_f2]
-        factor = factors_dict[f]
-        model.addConstr(factor == first_order_factor1 * first_order_factor2)
-        
-# Objective function
-model.setObjective(gp.quicksum(coefs[factor]*factors_dict[factor] for factor in factors_dict),
-                    GRB.MAXIMIZE)    
-
-model.optimize()
-
-test = 0
-for var in model.getVars():
-    test += var.x * coefs[var.varName]
-    print(var.varName, '=', var.x)
-print('objective value: ', model.objVal)
-print(test)
-
-
-#%%
-
-# for data in doe, p < 0.05 (significant) are:
-# those in the factors_reduced list below
-# run again with only these factors + 1st-order terms that appear
-
-X_labeled, y = fit_results(doe_results)
-
-factors_reduced = ["const", "wt", "sp", "b", "c1", "c2", "c3", 
-           "wt^2", "wt*sp", "wt*b", "wt*c1", "wt*c2", "wt*c3",
-           "sp^2", "sp*b", "b^2",]
-
-X_labeled2 = X_labeled[factors_reduced]
-
-# run again
-est2 = sm.OLS(y, X_labeled2)
-est_fit2 = est2.fit()
-print(est_fit2.summary())
-
-#%%
-
-import sklearn.metrics as metrics 
-
-coefs = est_fit2.params
-
-lr_model2 = LinearRegression().fit(X_labeled2, y)
-
-# objective function is lr_model2.predict(x), but we need to change maximization problem
-# to a minimization:
-def objective(x): 
-    y = coefs[0] + coefs[1]*x[1] + coefs[2]*x[2] + coefs[3]*x[3] + coefs[4]*x[4] \
-        + coefs[5]*x[5] + coefs[6]*x[6] + coefs[7]*x[1]**2 + coefs[8]*x[1]*x[2] + coefs[9]*x[1]*x[3] \
-        + coefs[10]*x[1]*x[4] + coefs[11]*x[1]*x[5] + coefs[12]*x[1]*x[6] + coefs[13]*x[2]**2 \
-        + coefs[14]*x[2]*x[3] + coefs[15]*x[3]**2
-    return -y
-
-y_pred = [-objective(X_labeled2.loc[x][:7]) for x in range(len(X_labeled2))]
-
-# test goodness of fit with coef of determination
-r_squared = metrics.r2_score(y, y_pred)
-
-# starting guess
-x0 = [1,1,1,1,1,1,1]
-
-# constraints
-
-def constraint1(x):
+# Optimizes model based on the series of coefficients for each factor.
+# Returns a Gurobi Model object and prints the optimal factor values
+def optimize_model(coefs):
+    model = gp.Model()
+    model.setParam('NonConvex', 2) # To allow for quadratic equality constraints
     
-    # set wt to 1, as this is binary but it is clear that 1 is better than 0
-    min_val = 1
-    max_val = 1
-    a1 = x[1] - min_val
-    a2 = max_val - x[1]
+    factors_dict = {}
     
-    return [a2, a1]
+    # Create gurobi variables
+    for factor in coefs.index:
+        if factor == 'wt':
+            factors_dict[factor] = model.addVar(vtype=GRB.CONTINUOUS, lb=0, ub=2, name=factor)
+        elif '^' not in factor and '*' not in factor:
+            factors_dict[factor] = model.addVar(vtype=GRB.CONTINUOUS, lb=0, ub=2, name=factor)
+        else:
+            factors_dict[factor] = model.addVar(vtype=GRB.CONTINUOUS, name=factor)
+    
+    # Add equality constraints
+    for f in factors_dict:
+        if f == 'const': # Must maintain constant term, constrain this to 1
+            factor = factors_dict[f]
+            model.addConstr(factor == 1)
+        if '^' in f: # Squared terms must be equal to the square of the first-order term
+            first_order_f = re.search("^[a-z0-9]*", str(f)).group(0) 
+            first_order_factor = factors_dict[first_order_f]
+            factor = factors_dict[f]
+            model.addConstr(factor == first_order_factor**2)
+        if '*' in f: # Interaction terms must be the product of the first-order terms
+            first_order_f1 = re.search("^[a-z0-9]*", str(f)).group(0)
+            first_order_f2 = re.search("[a-z0-9]*$", str(f)).group(0)
+            first_order_factor1 = factors_dict[first_order_f1]
+            first_order_factor2 = factors_dict[first_order_f2]
+            factor = factors_dict[f]
+            model.addConstr(factor == first_order_factor1 * first_order_factor2)
+            
+    # Objective function
+    model.setObjective(gp.quicksum(coefs[factor]*factors_dict[factor] for factor in factors_dict),
+                        GRB.MAXIMIZE)    
+    
+    model.optimize()
+    
+    for var in model.getVars():
+        print(var.varName, '=', var.x)
+    print('objective value: ', model.objVal)
+    
+    return model
 
-def constraint2(x):
-    
-    # sp is between 0 and 2
-    min_val = 0
-    max_val = 2
-    a1 = x[2] - min_val
-    a2 = max_val - x[2]
-    
-    return [a2, a1]
+model = optimize_model(coefs)
 
-def constraint3(x):
-    
-    # b is between 0 and 2
-    min_val = 0
-    max_val = 2
-    a1 = x[3] - min_val
-    a2 = max_val - x[3]
-    
-    return [a2, a1]
-
-def constraint4(x):
-    
-    # c1 is between 0 and 2
-    min_val = 0
-    max_val = 2
-    a1 = x[4] - min_val
-    a2 = max_val - x[4]
-    
-    return [a2, a1]
-
-def constraint5(x):
-    
-    # c2 is between 0 and 2
-    min_val = 0
-    max_val = 2
-    a1 = x[5] - min_val
-    a2 = max_val - x[5]
-    
-    return [a2, a1]
-
-def constraint6(x):
-    
-    # c3 is between 0 and 2
-    min_val = 0
-    max_val = 2
-    a1 = x[6] - min_val
-    a2 = max_val - x[6]
-    
-    return [a2, a1]
-    
-constraints = [{'type': 'ineq', 'fun': constraint1},
-               {'type': 'ineq', 'fun': constraint2},
-               {'type': 'ineq', 'fun': constraint3},
-               {'type': 'ineq', 'fun': constraint4},
-               {'type': 'ineq', 'fun': constraint5},
-               {'type': 'ineq', 'fun': constraint6}
-              ]
-
-res = minimize(objective, x0, method='COBYLA', constraints = constraints)
-
-parameters = {
-    "wt_list" : [0, 1], # number of 1MW wind turbines
-    "sp_list" : [5000, 10000, 15000], # area in m2 of solar panels
-    "b_list" : [516, 1144, 2288], # battery sizes in kW
-    "c1_list" : [0, 1, 2], # constants for r2_max eqn
-    "c2_list" : [0, 1, 2],
-    "c3_list" : [-1, 0, 1]
-    }
-
-res_x = res.x
-res_y = -objective(res_x)
-
-
-run = pd.Series([1, 0, 0, 2, 0, 2], ["wt_level", "sp_level", "b_level", "c1_level",
-                                     "c2_level", "c3_level"])
-pred_profit, pred_revenue, pred_opex, pred_capex, pred_total_sx, pred_e_to_grid, \
-    pred_e_from_grid = run_scenario(forecast_store, parameters, run)
-
-#%% 2nd DOE
-# Since the optimal solution is at one corner of our DOE, I'm updating the 
-# parameter values to see if we can get a more optimal solution
+#%% Optimal model is at corner point, so re-run with new parameter values, 
+# setting wind turbine equal to 1. The results of the first DOE
+# make it clear that 1 wind turbine is better than 0. Because they're so expensive,
+# we'll assume that a 2nd isn't an option. In practice, a 2nd wind turbine might
+# increase revenue by producing a large excess of energy for the grid. As the goal
+# of this plant is to produce Sx and not energy, it is reasonable to limit the 
+# model to 1 wind turbine
+# Because of this, we can also reduce the size of the DOE to eliminate wt = 0.
+# This is saved in DOE2.xlsx
 
 parameters2 = {
-    "wt_list" : [1, 2], # number of 1MW wind turbines
-    "sp_list" : [2000, 5000, 8000], # area in m2 of solar panels
-    "b_list" : [263, 516, 1144], # battery sizes in kW
-    "c1_list" : [1, 2, 3], # constants for r2_max eqn
-    "c2_list" : [-1, 0, 1],
-    "c3_list" : [0, 1, 2]
-    }
-
-# DOE input is a 2-level full factorial plus a Box-Behnken to capture curvature
-doe2 = pd.read_excel("DOE.xlsx")
-#doe.iloc[0]
-
-# Run DOE
-doe_results2, forecast_store = run_doe(doe2, parameters2)
-
-#%% Run with exactly 1 wind turbine
-# A 2nd wind turbine increases revenue by delivering a large amount of energy to
-# the grid. However, the goal of this plant is Sx production, so we're going to 
-# limit to 1 wind turbine and re-run the DOE, from DOE2.xlsx
-
-parameters3 = {
     "wt_list" : [1, 1], # number of 1MW wind turbines
     "sp_list" : [2000, 5000, 8000], # area in m2 of solar panels
     "b_list" : [263, 516, 1144], # battery sizes in kW
-    "c1_list" : [1, 2, 3], # constants for r2_max eqn
+    "c1_list" : [1, 2, 3], # constants for battery setpoint eqn
     "c2_list" : [-1, 0, 1],
     "c3_list" : [0, 1, 2]
     }
 
-# DOE input is a 2-level full factorial plus a Box-Behnken to capture curvature
+# New DOE which removes the wind turbine factor (i.e. sets it always equal to 1)
 doe2 = pd.read_excel("DOE2.xlsx")
-#doe.iloc[0]
 
 # Run DOE
-doe_results2, forecast_store = run_doe(doe2, parameters3)
+doe_results2, _ = run_doe(doe2, parameters2, forecast_store)
 
-X_labeled, y = fit_results(doe_results2)
+coefs2 = generate_sig_model(doe_results2)
 
-#%%
-factors_reduced2 = ["const", "sp", "b", "c2", "sp^2", "sp*b", "sp*c2", "b^2", "b*c2"]
-
-X_labeled2_2 = X_labeled[factors_reduced2]
-
-# run again
-est2 = sm.OLS(y, X_labeled2_2)
-est_fit2 = est2.fit()
-print(est_fit2.summary())
+model2 = optimize_model(coefs2)
 
 #%%
-coefs = est_fit2.params
 
-lr_model2 = LinearRegression().fit(X_labeled2_2, y)
-
-# objective function is lr_model2.predict(x), but we need to change maximization problem
-# to a minimization:
-def objective2(x): 
-    y = coefs[0] + coefs[1]*x[1] + coefs[2]*x[2] + coefs[3]*x[3] + coefs[4]*x[1]**2 \
-        + coefs[5]*x[1]*x[2] + coefs[6]*x[1]*x[3] + coefs[7]*x[2]**2 + coefs[8]*x[2]*x[3]
-    return -y
-
-y_pred = [-objective2(X_labeled2_2.loc[x][:4]) for x in range(len(X_labeled2_2))]
-
-# test goodness of fit with coef of determination
-r_squared = metrics.r2_score(y, y_pred)
-
-#%% optimize # 2
-
-# starting guess
-x0 = [1,1,1,1]
-
-# constraints
-
-def constraint1_2(x):
-    
-    # sp is between 0 and 2
-    min_val = 0
-    max_val = 2
-    a1 = x[1] - min_val
-    a2 = max_val - x[1]
-    
-    return [a2, a1]
-
-def constraint2_2(x):
-    
-    # b is between 0 and 2
-    min_val = 0
-    max_val = 2
-    a1 = x[2] - min_val
-    a2 = max_val - x[2]
-    
-    return [a2, a1]
-
-def constraint3_2(x):
-    
-    # c2 is between 0 and 2
-    min_val = 0
-    max_val = 2
-    a1 = x[3] - min_val
-    a2 = max_val - x[3]
-    
-    return [a2, a1]
-
-    
-constraints = [{'type': 'ineq', 'fun': constraint1_2},
-               {'type': 'ineq', 'fun': constraint2_2},
-               {'type': 'ineq', 'fun': constraint3_2},
-              ]
-
-res = minimize(objective2, x0, method='COBYLA', constraints = constraints)
-
-res_x = res.x
-res_y = -objective2(res_x)
-
-'''
-Results of this new DOE are sp = 1.38, b = 0, and c2 = 1. 
-Since we're still on the edge for the battery, run again with a lower range for
-the battery. Will also shift sp to center around 1.38
-'''
-#%% Shifting range of sp and b and rerunning
 parameters3 = {
-    "wt_list" : [1, 1], # number of 1MW wind turbines
+    "wt_list" : [1, 1], # Only the case with 1 wind turbine is considered
     "sp_list" : [4000, 6500, 9000], # area in m2 of solar panels
     "b_list" : [0, 263, 516], # battery sizes in kW
-    "c1_list" : [1, 2, 3], # constants for r2_max eqn
+    "c1_list" : [1, 2, 3], # constants for battery setpoint eqn
     "c2_list" : [-1, 0, 1],
     "c3_list" : [0, 1, 2]
     }
 
-# DOE input is a 2-level full factorial plus a Box-Behnken to capture curvature
-doe2 = pd.read_excel("DOE2.xlsx")
-#doe.iloc[0]
+# DOE form doesn't change, so no new DOE is loaded
 
 # Run DOE
-doe_results3, forecast_store = run_doe(doe2, parameters3)
+doe_results3, _ = run_doe(doe2, parameters3, forecast_store)
 
-X_labeled, y = fit_results(doe_results3)
+coefs3 = generate_sig_model(doe_results3)
 
-#%%
-factors_reduced3 = ["const", "sp", "b", "c2", "sp^2", "sp*b", "sp*c2", "b^2", "b*c2"]
+model3 = optimize_model(coefs3)
 
-X_labeled2_3 = X_labeled[factors_reduced3]
+#%% Results suggest it is optimal to have no battery. This is reasonable, as it
+# suggests the cost of the battery is too high to be offset by the energy from 
+# grid we must buy when renewable energy production is low.
+# As all the constants relate to parameters for determining battery set point, 
+# they are no longer relevant in the model and will be set to 0 for the next 
+# calculation.
+# Below, we calculate the expected results at this optimal level
 
-# run again
-est2 = sm.OLS(y, X_labeled2_3)
-est_fit2 = est2.fit()
-print(est_fit2.summary())
+parameters_final = {
+    "wt_list" : [1], # Only the case with 1 wind turbine is considered
+    "sp_list" : [6500], # area in m2 of solar panels
+    "b_list" : [0], # battery sizes in kW
+    "c1_list" : [0], # constants for battery setpoint eqn
+    "c2_list" : [0],
+    "c3_list" : [0]
+    }
 
-#%%
-# can reduce 2 more factors
-factors_reduced3 = ["const", "sp", "b", "c2", "sp^2", "sp*b", "sp*c2"]
-
-X_labeled2_3 = X_labeled[factors_reduced3]
-
-# run again
-est2 = sm.OLS(y, X_labeled2_3)
-est_fit2 = est2.fit()
-print(est_fit2.summary())
-
-#%%
-coefs = est_fit2.params
-
-lr_model2 = LinearRegression().fit(X_labeled2_3, y)
-
-# objective function is lr_model2.predict(x), but we need to change maximization problem
-# to a minimization:
-def objective3(x): 
-    y = coefs[0] + coefs[1]*x[1] + coefs[2]*x[2] + coefs[3]*x[3] + coefs[4]*x[1]**2 \
-        + coefs[5]*x[1]*x[2] + coefs[6]*x[1]*x[3]
-    return -y
-
-y_pred = [-objective3(X_labeled2_2.loc[x][:4]) for x in range(len(X_labeled2_2))]
-
-# test goodness of fit with coef of determination
-r_squared = metrics.r2_score(y, y_pred)
-
-#%% optimize # 2
-
-# starting guess
-x0 = [1,1,1,1]
-
-# constraints
-
-def constraint1_2(x):
-    
-    # sp is between 0 and 2
-    min_val = 0
-    max_val = 2
-    a1 = x[1] - min_val
-    a2 = max_val - x[1]
-    
-    return [a2, a1]
-
-def constraint2_2(x):
-    
-    # b is between 0 and 2
-    min_val = 0
-    max_val = 2
-    a1 = x[2] - min_val
-    a2 = max_val - x[2]
-    
-    return [a2, a1]
-
-def constraint3_2(x):
-    
-    # c2 is between 0 and 2
-    min_val = 0
-    max_val = 2
-    a1 = x[3] - min_val
-    a2 = max_val - x[3]
-    
-    return [a2, a1]
-
-    
-constraints = [{'type': 'ineq', 'fun': constraint1_2},
-               {'type': 'ineq', 'fun': constraint2_2},
-               {'type': 'ineq', 'fun': constraint3_2},
-              ]
-
-res = minimize(objective3, x0, method='COBYLA', constraints = constraints)
-
-res_x = res.x
-res_y = -objective3(res_x)
-
-
-'''
-according to this, sp is centered (1.04), and battery and c2 are at 0. Lower
-limit for battery was already 0, so we can't go any lower
-'''
-#%% test these parameters on the training data
-run = pd.Series([1, 1, 0, 1, 0, 1], ["wt_level", "sp_level", "b_level", "c1_level",
+run = pd.Series([0, 0, 0, 0, 0, 0], ["wt_level", "sp_level", "b_level", "c1_level",
                                      "c2_level", "c3_level"])
-opt_profit, opt_revenue, opt_opex, opt_capex, opt_total_sx, opt_e_to_grid, opt_e_from_grid \
-    = run_scenario(forecast_store, parameters3, run)
+
+profit, revenue, opex, capex, total_sx, e_to_grid, e_from_grid \
+    = run_scenario(forecast_store, parameters_final, run)
     
-#%% New attempt
-    
+print("Profit (€/yr): ", round(profit))
+print("Revenue (€/yr): ", round(revenue))
+print("Opex (€/yr): ", round(opex))
+print("Capex (€/yr): ", round(capex))
+print("Sulfur (kmol/yr): ", round(total_sx/years/1000))
+print("Energy sold to grid (MW/yr): ", round(e_to_grid/years/1000, 1))
+print("Energy purchased from grid (MW/yr): ", round(e_from_grid/years/1000, 1))
