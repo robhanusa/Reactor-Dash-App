@@ -18,12 +18,6 @@ years = 8
 # Capex lifetime to calculate value of capex per year
 capex_life = 10
 
-sx_test = np.zeros(wec.data_length-12)
-e_to_r2 = np.zeros(wec.data_length-12)
-r2_prev_test = np.zeros(wec.data_length-12)
-
-test_arr_lto = [[0]*9]*(wec.data_length-12)
-
 # Pre-calculate forecast data
 def prep_forecast(parameters):
     wt_list = parameters["wt_list"]
@@ -67,12 +61,14 @@ def run_scenario(forecast_store, parameters, run):
     
     start = time.time()
     
-    wt_level = int(run["wt_level"])
-    sp_level = int(run["sp_level"])
-    b_level = int(run["b_level"])
-    c1_level = int(run["c1_level"])
-    c2_level = int(run["c2_level"])
-    c3_level = int(run["c3_level"])
+    # factor levels are between -1 and 1, but list indicies are 0-2, so need to
+    # add 1 to get index from level. wt is a special case because it's binary
+    wt_index = int(run["wt_level"])
+    sp_index = int(run["sp_level"]) + 1
+    b_index = int(run["b_level"]) + 1
+    c1_index = int(run["c1_level"]) + 1
+    c2_index = int(run["c2_level"]) + 1
+    c3_index = int(run["c3_level"]) + 1
     
     wt_list = parameters["wt_list"]
     sp_list = parameters["sp_list"]
@@ -81,12 +77,12 @@ def run_scenario(forecast_store, parameters, run):
     c2_list = parameters["c2_list"]
     c3_list = parameters["c3_list"]
     
-    wt = wt_list[wt_level]
-    sp = sp_list[sp_level]
-    b = b_list[b_level]
-    c1 = c1_list[c1_level]
-    c2 = c2_list[c2_level]
-    c3 = c3_list[c3_level]
+    wt = wt_list[wt_index]
+    sp = sp_list[sp_index]
+    b = b_list[b_index]
+    c1 = c1_list[c1_index]
+    c2 = c2_list[c2_index]
+    c3 = c3_list[c3_index]
     
     battery_specs = { 
         "max_charge": b, # kWh
@@ -117,13 +113,9 @@ def run_scenario(forecast_store, parameters, run):
     
     # initialize counters
     e_from_grid = 0 # kwh
-    #e_from_grid_hourly = np.zeros([24,12]) # kw per hour per month
     e_to_grid = 0 # kwh
-    #e_to_grid_hourly = np.zeros([24,12]) # kw per hour per month
     total_renewable = 0 # kwh
-    #total_renewable_hourly = np.zeros([24,12]) # kw per hour per month
     total_sx = 0 # mol
-    #total_sx_monthly = np.zeros(12)
     
     # Initiate necessary variables
     r2_prev = 0 
@@ -143,23 +135,12 @@ def run_scenario(forecast_store, parameters, run):
         # Energy flowing to the plant
         p_renew_t_actual = wec.calc_generated_kw(state)
         total_renewable += p_renew_t_actual
-        #total_renewable_hourly[state.hour_of_day][state.month-1] += p_renew_t_actual
         
-        forecast = (forecast_store[wt_level][sp_level][hour][0],
-                    forecast_store[wt_level][sp_level][hour][1])
+        forecast = (forecast_store[wt_index][sp_index][hour][0],
+                    forecast_store[wt_index][sp_index][hour][1])
         
         # Allow for multiple periods per hour
         for i in range(pph):
-            
-            # test_arr_lto[hour*pph+i][0] = p_renew_t_actual
-            # test_arr_lto[hour*pph+i][1] = p_renew_tmin1
-            # test_arr_lto[hour*pph+i][2] = energy_tally
-            # test_arr_lto[hour*pph+i][3] = r2_e_prev
-            # test_arr_lto[hour*pph+i][4] = energy_flow
-            # test_arr_lto[hour*pph+i][5] = battery
-            # test_arr_lto[hour*pph+i][6] = b_sp_constants
-            # test_arr_lto[hour*pph+i][7] = reactor2
-            # test_arr_lto[hour*pph+i][8] = forecast
             
             # Energy distribution for current period
             energy_tally, r2_e_prev, energy_flow = wec.distribute_energy(p_renew_t_actual,
@@ -171,46 +152,34 @@ def run_scenario(forecast_store, parameters, run):
                                                             b_sp_constants,
                                                             reactor2,
                                                             forecast)
-            
-            
+                   
             # Update battery charge
             battery.charge += wec.battery_charge_differential(energy_flow.to_battery, battery)
             
             # Calculate reactor 2 state
             r2_sx_current = reactor2.react(energy_flow.to_r2, r2_prev)
             total_sx += r2_sx_current/pph
-            # e_to_r2[hour*pph+i] = energy_flow.to_r2
-            # r2_prev_test[hour*pph+i] = r2_prev
-            # sx_test[hour*pph+i] = r2_sx_current/pph
             
             r2_prev = r2_sx_current
-            #total_sx_monthly[state.month-1] += r2_sx_current/pph
-            
             
             # Add up energy taken from grid
             if energy_flow.from_grid > 0:
                 e_from_grid += energy_flow.from_grid/pph
-                # e_from_grid_hourly[state.hour_of_day][state.month-1] += energy_flow.from_grid/pph
                 
             if energy_flow.from_grid < 0:
                 e_to_grid -= energy_flow.from_grid/pph
-                # e_to_grid_hourly[state.hour_of_day][state.month-1] -= energy_flow.from_grid/pph
                 
         p_renew_tmin1 = p_renew_t_actual
     
     # spread capex cost over 10 years, so cost per year is always /10
     capex = (battery_specs["cost"] + solar_panel_specs["cost"] + wind_turbine_specs["cost"])/capex_life
     
-    # Target production is 240 kmol S per year. So, assume that S above this 
+    # Target production is 240 kmol S per year (1.92 million for 8 years). So, assume that S above this 
     # value is worth 0. Otherwise, it always becomes advantageous to produce more
     # S, even if we just use grid energy to do it.
     revenue = (9.6*min(total_sx, 240000*years) + 0.1*e_to_grid)/years # divide by 8 years because 8 years of training data, -> revenue / year
     
-    # Roughly 15 kW required to make 1 mol S, so changing coef to .75 instead of .25
-    # will make it a little unfavorable to buy from grid to make Sx.
-    # With .75 coef there was still a favor of using grid energy to make Sx, but 
-    # Somewhat less so, since the battery was large in the optimal configureation
-    # 3rd attempt now with higher penalty at 1.25
+    # Roughly 15 kW required to make 1 mol S
     opex = 0.25*e_from_grid/years # divide by 8 years because 8 years of training data, -> opex / year
     
     profit = revenue - opex - capex
@@ -259,13 +228,17 @@ doe = pd.read_excel("DOE.xlsx")
 
 # Run DOE
 doe_results, forecast_store = run_doe(doe, parameters)
+
 #%% Generate a model for profit as a function of the input parameters
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
 import statsmodels.api as sm
 from scipy.optimize import minimize
+import re
+import gurobipy as gp
+from gurobipy import GRB
 
-def summarize_fit(doe_results):
+def fit_results(doe_results):
     X = doe_results[["wt_level", "sp_level", "b_level", "c1_level", "c2_level", "c3_level"]]
     y = doe_results["profit"]
     
@@ -273,8 +246,6 @@ def summarize_fit(doe_results):
     fit_tr_model = model.fit_transform(X)
     lr_model = LinearRegression()
     lr_model.fit(fit_tr_model, y)
-    
-    
     
     factors = ["const", "wt", "sp", "b", "c1", "c2", "c3", 
                "wt^2", "wt*sp", "wt*b", "wt*c1", "wt*c2", "wt*c3",
@@ -286,8 +257,107 @@ def summarize_fit(doe_results):
     
     est = sm.OLS(y, X_labeled)
     est_fit = est.fit()
+    print("Initial results:")
     print(est_fit.summary())
-    return X_labeled, y
+    return X_labeled, y, est_fit
+
+def fit_sig_results(X_labeled, y, est_fit):
+    
+    # filter non-significant factors
+    sig_factors = est_fit.pvalues[est_fit.pvalues <= 0.05].index
+    
+    # Ensure all 1st-order terms are present if they're in a higher-level term
+    # Start with squared terms
+    for factor in sig_factors:
+        if "^" in factor:
+            first_order_term = re.search("^[a-z0-9]*",factor).group(0)  
+            if first_order_term not in sig_factors:
+                sig_factors = sig_factors.append(first_order_term)
+        
+        # Ensure all 1st-order terms from interactions are present
+        if "*" in factor:
+            first_order_term1 = re.search("^[a-z0-9]*",factor).group(0)
+            first_order_term2 = re.search("[a-z0-9]*$",factor).group(0)
+            for first_order_term in (first_order_term1, first_order_term2):
+                if first_order_term not in sig_factors:
+                    sig_factors = sig_factors.append(first_order_term)    
+    
+    # Create new df of significant factors
+    X_sig = X_labeled[sig_factors]
+    
+    # New model with only significant factors
+    est_sig = sm.OLS(y, X_sig)
+    est_sig_fit = est_sig.fit()
+    
+    print("Significant results:")
+    print(est_sig_fit.summary())    
+    
+    return X_sig, est_sig_fit
+
+# Fit results on all factors
+X_labeled, y, est_fit = fit_results(doe_results)  
+
+est_fit_old = est_fit
+
+# Re-fit results on only significant factors (and their first order components)
+X_sig, est_sig_fit = fit_sig_results(X_labeled, y, est_fit)
+
+# Keep eliminating factors until there is no change in the set of factors
+break_counter = 0
+while len(est_fit_old.pvalues) != len(est_sig_fit.pvalues) and break_counter < 10:
+    break_counter += 1
+    est_fit_old = est_sig_fit
+    X_sig, est_sig_fit = fit_sig_results(X_sig, y, est_sig_fit)
+
+coefs = est_sig_fit.params
+
+
+#%% Create Gurobi model to optimize DOE results
+model = gp.Model()
+model.setParam('NonConvex', 2) # To allow for quadratic equality constraints
+
+factors_dict = {}
+
+# Create gurobi variables
+for factor in est_sig_fit.pvalues.index:
+    if factor == 'wt':
+        factors_dict[factor] = model.addVar(vtype=GRB.BINARY, name=factor)
+    elif '^' not in factor and '*' not in factor:
+        factors_dict[factor] = model.addVar(vtype=GRB.CONTINUOUS, lb=-1, ub=1, name=factor)
+    else:
+        factors_dict[factor] = model.addVar(vtype=GRB.CONTINUOUS, name=factor)
+
+# Add equality constraints
+for f in factors_dict:
+    if f == 'const': # Must maintain constant term, constrain this to 1
+        factor = factors_dict[f]
+        model.addConstr(factor == 1)
+    if '^' in f: # Squared terms must be equal to the square of the first-order term
+        first_order_f = re.search("^[a-z0-9]*", str(f)).group(0) 
+        first_order_factor = factors_dict[first_order_f]
+        factor = factors_dict[f]
+        model.addConstr(factor == first_order_factor**2)
+    if '*' in f: # Interaction terms must be the product of the first-order terms
+        first_order_f1 = re.search("^[a-z0-9]*", str(f)).group(0)
+        first_order_f2 = re.search("[a-z0-9]*$", str(f)).group(0)
+        first_order_factor1 = factors_dict[first_order_f1]
+        first_order_factor2 = factors_dict[first_order_f2]
+        factor = factors_dict[f]
+        model.addConstr(factor == first_order_factor1 * first_order_factor2)
+        
+# Objective function
+model.setObjective(gp.quicksum(coefs[factor]*factors_dict[factor] for factor in factors_dict),
+                    GRB.MAXIMIZE)    
+
+model.optimize()
+
+test = 0
+for var in model.getVars():
+    test += var.x * coefs[var.varName]
+    print(var.varName, '=', var.x)
+print('objective value: ', model.objVal)
+print(test)
+
 
 #%%
 
@@ -295,7 +365,7 @@ def summarize_fit(doe_results):
 # those in the factors_reduced list below
 # run again with only these factors + 1st-order terms that appear
 
-X_labeled, y = summarize_fit(doe_results)
+X_labeled, y = fit_results(doe_results)
 
 factors_reduced = ["const", "wt", "sp", "b", "c1", "c2", "c3", 
            "wt^2", "wt*sp", "wt*b", "wt*c1", "wt*c2", "wt*c3",
@@ -418,7 +488,6 @@ res_x = res.x
 res_y = -objective(res_x)
 
 
-
 run = pd.Series([1, 0, 0, 2, 0, 2], ["wt_level", "sp_level", "b_level", "c1_level",
                                      "c2_level", "c3_level"])
 pred_profit, pred_revenue, pred_opex, pred_capex, pred_total_sx, pred_e_to_grid, \
@@ -465,7 +534,7 @@ doe2 = pd.read_excel("DOE2.xlsx")
 # Run DOE
 doe_results2, forecast_store = run_doe(doe2, parameters3)
 
-X_labeled, y = summarize_fit(doe_results2)
+X_labeled, y = fit_results(doe_results2)
 
 #%%
 factors_reduced2 = ["const", "sp", "b", "c2", "sp^2", "sp*b", "sp*c2", "b^2", "b*c2"]
@@ -564,7 +633,7 @@ doe2 = pd.read_excel("DOE2.xlsx")
 # Run DOE
 doe_results3, forecast_store = run_doe(doe2, parameters3)
 
-X_labeled, y = summarize_fit(doe_results3)
+X_labeled, y = fit_results(doe_results3)
 
 #%%
 factors_reduced3 = ["const", "sp", "b", "c2", "sp^2", "sp*b", "sp*c2", "b^2", "b*c2"]
@@ -662,3 +731,6 @@ run = pd.Series([1, 1, 0, 1, 0, 1], ["wt_level", "sp_level", "b_level", "c1_leve
                                      "c2_level", "c3_level"])
 opt_profit, opt_revenue, opt_opex, opt_capex, opt_total_sx, opt_e_to_grid, opt_e_from_grid \
     = run_scenario(forecast_store, parameters3, run)
+    
+#%% New attempt
+    
