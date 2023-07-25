@@ -321,10 +321,15 @@ coefs = generate_sig_model(doe_results)
 
 #%% Create Gurobi model to optimize DOE results
 
+# Create Gurobi environment and suppress output
+env = gp.Env(empty=True)
+env.setParam("OutputFlag", 0)
+env.start()
+
 # Optimizes model based on the series of coefficients for each factor.
 # Returns a Gurobi Model object and prints the optimal factor values
 def optimize_model(coefs):
-    model = gp.Model()
+    model = gp.Model(env=env)
     model.setParam('NonConvex', 2) # To allow for quadratic equality constraints
     
     factors_dict = {}
