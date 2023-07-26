@@ -470,6 +470,6 @@ for i in range(len(months)):
                             row=1, col=1)
     
 fig_grid_cons.update_xaxes(title_text="Time of day (hour)", row=1, col=1)
-fig_grid_cons.update_yaxes(title_text="Average kWh from grid", range=[-1,30], row=1, col=1)
+fig_grid_cons.update_yaxes(title_text="Average kWh from grid", range=[-1,15], row=1, col=1)
 fig_grid_cons.update_layout(title_text="Average energy needed from grid per hour by month", 
                             title_x=0.5, height=650)
