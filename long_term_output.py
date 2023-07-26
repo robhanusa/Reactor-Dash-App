@@ -18,6 +18,35 @@ years = 8
 # Capex lifetime to calculate value of capex per year
 capex_life = 10
 
+def generate_wt_specs(wt):
+    wind_turbine_specs = {
+        "cut_in": 13, # km/h
+        "rated_speed": 50, # km/h
+        "cut_out": 100, # km/h
+        "max_energy": 1000, # kW
+        "count": wt,
+        "cost": wt*1.5*10**6 # EUR/MW 
+        }
+    
+    return wind_turbine_specs
+
+def generate_sp_specs(sp):
+    solar_panel_specs = {
+        "area": sp, # m^2
+        "efficiency": 0.1,
+        "cost": sp*200/1.1 # $200/m2 (/1.1 eur to usd)
+        }
+    
+    return solar_panel_specs
+
+def generate_b_specs(b):
+    battery_specs = { 
+        "max_charge": b, # kWh
+        "cost": 1000*b
+        }
+    
+    return battery_specs
+
 # Pre-calculate forecast data
 def prep_forecast(parameters):
     wt_list = parameters["wt_list"]
@@ -28,22 +57,11 @@ def prep_forecast(parameters):
     
     for i in range(len(wt_list)):
         wt = wt_list[i]
-        wind_turbine_specs = {
-            "cut_in": 13, # km/h
-            "rated_speed": 50, # km/h
-            "cut_out": 100, # km/h
-            "max_energy": 1000, # kW
-            "count": wt,
-            "cost": wt*1.5*10**6 # EUR/MW 
-            }
+        wind_turbine_specs = generate_wt_specs(wt)
         
         for j in range(len(sp_list)):
             sp = sp_list[j]
-            solar_panel_specs = {
-                "area": sp, # m^2
-                "efficiency": 0.1,
-                "cost": sp*200/1.1 # $200/m2 (/1.1 eur to usd)
-                }
+            solar_panel_specs = generate_sp_specs(sp)
     
             for hour in range(wec.data_length-6):
                 for k in range(6): 
@@ -82,25 +100,11 @@ def run_scenario(forecast_store, parameters, run):
     c2 = c2_list[c2_index]
     c3 = c3_list[c3_index]
     
-    battery_specs = { 
-        "max_charge": b, # kWh
-        "cost": 1000*b
-        }
+    battery_specs = generate_b_specs(b)
 
-    solar_panel_specs = {
-        "area": sp, # m^2
-        "efficiency": 0.1,
-        "cost": sp*200/1.1 # $200/m2 (/1.1 eur to usd)
-        }
-
-    wind_turbine_specs = {
-        "cut_in": 13, # km/h
-        "rated_speed": 50, # km/h
-        "cut_out": 100, # km/h
-        "max_energy": 1000, # kW
-        "count": wt,
-        "cost": wt*1.5*10**6 # EUR/MW 
-        }
+    solar_panel_specs = generate_sp_specs(sp)
+    
+    wind_turbine_specs = generate_wt_specs(wt)
     
     b_sp_constants = {
         "c1": c1,

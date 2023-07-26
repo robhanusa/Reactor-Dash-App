@@ -79,8 +79,8 @@ def calc_r2_max(r2_max_constants, forecast):
     c3 = r2_max_constants["c3"]
     return max(50, c1*hrs_0_6 + c2*hrs_7_12 + c3*hrs_0_6*hrs_7_12)
 
-def calc_b_sp(b_sp_constants, forecast, battery, p_min, p_max):
-    hrs_0_3, hrs_4_6 = forecast
+def calc_b_sp(b_sp_constants, forecast_aggregated, battery, p_min, p_max):
+    hrs_0_3, hrs_4_6 = forecast_aggregated
     c1 = b_sp_constants["c1"]
     c2 = b_sp_constants["c2"]
     c3 = b_sp_constants["c3"]
@@ -105,7 +105,7 @@ def distribute_energy(p_renew_t_actual,
                       battery, 
                       b_sp_constants,
                       reactor2, 
-                      forecast):
+                      forecast_aggregated):
     
     r1_max = 50
     r1_min = 50
@@ -120,7 +120,7 @@ def distribute_energy(p_renew_t_actual,
     # For the moment we assume perfect forecasting, but the line below is where
     # we can adapt for different levels of forecasting accuracy.
     p_renew_t_forecasted = p_renew_t_actual
-    b_sp = calc_b_sp(b_sp_constants, forecast, battery, p_min, p_max)
+    b_sp = calc_b_sp(b_sp_constants, forecast_aggregated, battery, p_min, p_max)
     e_t = b_sp - battery.charge
     d = p_renew_tmin1 - p_renew_t_forecasted
     
