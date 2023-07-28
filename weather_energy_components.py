@@ -72,12 +72,6 @@ def allocate_p_to_condenser(to_r2, reactor2):
     to_condenser = condenser_constant * r2_sx_ss
     return to_condenser
 
-def calc_r2_max(r2_max_constants, forecast):
-    hrs_0_6, hrs_7_12 = forecast
-    c1 = r2_max_constants["c1"]
-    c2 = r2_max_constants["c2"]
-    c3 = r2_max_constants["c3"]
-    return max(50, c1*hrs_0_6 + c2*hrs_7_12 + c3*hrs_0_6*hrs_7_12)
 
 def calc_b_sp(b_sp_constants, forecast_aggregated, battery, p_min, p_max):
     hrs_0_3, hrs_4_6 = forecast_aggregated
@@ -94,7 +88,7 @@ def calc_b_sp(b_sp_constants, forecast_aggregated, battery, p_min, p_max):
     
     return min(battery.max_charge * 0.8, 
                max(battery.max_charge * 0.2, 
-                   sp_default * (c1 *(ratio_0_3) + c2 * (ratio_4_6) + c3 * ratio_0_3 * ratio_4_6)))
+                   sp_default * (c1 * ratio_0_3 + c2 * ratio_4_6 + c3 * ratio_0_3 * ratio_4_6)))
 
 
 def distribute_energy(p_renew_t_actual,
