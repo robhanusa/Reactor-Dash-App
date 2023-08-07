@@ -234,88 +234,145 @@ doe = pd.read_excel("DOE.xlsx")
 # Run DOE
 doe_results, forecast_store = run_doe(doe, parameters) #, forecast_store)
 
-#%% Generate a model for profit as a function of the input parameters
+#%% Necessary functions
+
+def get_index(a, b):
+    for i in range(len(a)):
+       if a[i] == b:
+           return i
+
+# Create boolean array that indicates thes lower order terms for each term in the model
+def make_lot_array(feature_names):
+    lower_order_terms = np.full((len(feature_names), len(feature_names)), False)
+
+    for i in range(len(feature_names)):
+        feature = feature_names[i]
+        
+        # find 1st order terms for squared features
+        if "^" in feature:
+            first_order_term = re.search("^[a-z0-9_]*",feature).group(0)  
+            first_order_term_index = get_index(feature_names, first_order_term)
+            lower_order_terms[i, first_order_term_index] = True
+                
+        # find 1st order terms for interactions
+        if " " in feature:
+            first_order_term1 = re.search("^[a-z0-9_]*",feature).group(0)
+            first_order_term2 = re.search("[a-z0-9_]*$",feature).group(0)      
+            first_order_term1_index = get_index(feature_names, first_order_term1)
+            first_order_term2_index = get_index(feature_names, first_order_term2)
+            lower_order_terms[i, first_order_term1_index] = True
+            lower_order_terms[i, first_order_term2_index] = True
+            
+            # find interactions that contain a 1st order term also present in squared term
+            feature1_squared = first_order_term1 + "^2"
+            feature2_squared = first_order_term2 + "^2"
+            feature1_squared_index = get_index(feature_names, feature1_squared)
+            feature2_squared_index = get_index(feature_names, feature2_squared)
+            lower_order_terms[feature1_squared_index, i] = True
+            lower_order_terms[feature2_squared_index, i] = True
+            
+    return lower_order_terms
+
+#%%
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
 import statsmodels.api as sm
 import re
-import gurobipy as gp
-from gurobipy import GRB
 
-def fit_results(doe_results):
-    X = doe_results[["wt_level", "sp_level", "b_level", "c1_level", "c2_level", "c3_level"]]
+# Note that some variables have the suffix _f (for fixed) or _uf for unfixed.
+# This indicates whether the list/array shrinks as variables are eliminated.
+
+def fit_results(doe_results, remove_var=None):
+    X_features = doe_results[["wt_level", "sp_level", "b_level", "c1_level", "c2_level", "c3_level"]]
     y = doe_results["profit"]
     
     model = PolynomialFeatures(degree=2)
-    fit_tr_model = model.fit_transform(X)
+    
+    fit_tr_model = model.fit_transform(X_features)
+    features = model.get_feature_names_out()
+    X = pd.DataFrame(fit_tr_model, columns=features)
+    
+    indicies_to_remove = []
+    # Remove higher order terms of 'remove_var'. Leave the first order term.
+    if remove_var:
+        for i in range(len(features)):
+            feature = features[i] 
+            
+            # Searching for " " or "^" ensures only higher-order terms are removed
+            if remove_var in feature and (" " in feature or "^" in feature):
+                indicies_to_remove.append(i) 
+                X.drop(columns=[feature], inplace=True)
+                
+        for index in indicies_to_remove:
+                features = np.delete(features, index)            
+    
     lr_model = LinearRegression()
     lr_model.fit(fit_tr_model, y)
     
-    factors = ["const", "wt", "sp", "b", "c1", "c2", "c3", 
-               "wt^2", "wt*sp", "wt*b", "wt*c1", "wt*c2", "wt*c3",
-               "sp^2", "sp*b", "sp*c1", "sp*c2", "sp*c3",
-               "b^2", "b*c1","b*c2","b*c3",
-               "c1^2", "c1*c2", "c1*c3", "c2^2", "c2*c3", "c3^2"]
-    
-    X_labeled = pd.DataFrame(fit_tr_model, columns=factors)
-    
-    est = sm.OLS(y, X_labeled)
+    est = sm.OLS(y, X)
     est_fit = est.fit()
     print("Initial results:")
     print(est_fit.summary())
-    return X_labeled, y, est_fit
 
-def fit_sig_results(X_labeled, y, est_fit):
+    return X, y, est_fit, features
+
+X, y, est_fit, feature_names = fit_results(doe_results)
+
+# According to https://www.biostat.jhsph.edu/~iruczins/teaching/jf/ch10.pdf
+# we shouldn't remove a lower-order feature that is a factor of a higher order
+# term. Also, interactions are a form of lower-order term and should not be removed 
+# unless all higher order terms also are. (e.g. don't remove x1*x2 unless x1^2 and
+# x2^2 are also gone) To enable this, we make the lower_order_term matrix.
+
+lower_order_terms_f = make_lot_array(feature_names)
+inds_of_remaining_terms = list(range(len(feature_names)))
+
+feature_index_dict_f = {feature_names[i]:i for i in range(len(feature_names))}
+
+# use dictionary to look up indicies in lower_order_terms_f array based on feature
+feature_index_dict_f = {feature_names[i]:i for i in range(len(feature_names))}
+
+feature_names_uf = feature_names
+
+def backward_elimination(est_fit, X, y, feature_names_uf):
+    pvals = est_fit.pvalues
     
-    # filter non-significant factors
-    sig_factors = list(est_fit.pvalues[est_fit.pvalues <= 0.05].index)
-    
-    # Ensure all 1st-order terms are present if they're in a higher-level term
-    # Start with squared terms
-    for factor in sig_factors:
-        if "^" in factor:
-            first_order_term = re.search("^[a-z0-9]*",factor).group(0)  
-            if first_order_term not in sig_factors:
-                sig_factors.append(first_order_term)
+    while max(pvals[1:]) > 0.05:
+
+        highest_pval_index = np.argmax(pvals[1:]) + 1
+        feature_to_remove = feature_names_uf[highest_pval_index]
+        feature_index = feature_index_dict_f[feature_to_remove]
         
-        # Ensure all 1st-order terms from interactions are present
-        if "*" in factor:
-            first_order_term1 = re.search("^[a-z0-9]*",factor).group(0)
-            first_order_term2 = re.search("[a-z0-9]*$",factor).group(0)
-            for first_order_term in (first_order_term1, first_order_term2):
-                if first_order_term not in sig_factors:
-                    sig_factors.append(first_order_term)    
-    
-    # Create new df of significant factors
-    X_sig = X_labeled[sig_factors]
-    
-    # New model with only significant factors
-    est_sig = sm.OLS(y, X_sig)
-    est_sig_fit = est_sig.fit()
-    
-    print("Significant results:")
-    print(est_sig_fit.summary())    
-    
-    return X_sig, est_sig_fit
+        if not any(lower_order_terms_f[inds_of_remaining_terms, feature_index]):
+            X.drop(columns=[feature_to_remove], inplace=True)
+            feature_names_uf = np.delete(feature_names_uf, highest_pval_index)
+            inds_of_remaining_terms[feature_index] = 0
+            
+            est_fit = sm.OLS(y, X).fit()
+            pvals = est_fit.pvalues
+            print(est_fit.summary())
+        else:
+            pvals[highest_pval_index] = 0
+        
+    return est_fit, feature_names_uf
+
+        
+est_fit, feature_names_uf = backward_elimination(est_fit, X, y, feature_names)
+
+print(est_fit.summary())
+
+
+#%% Generate a model for profit as a function of the input parameters
 
 # Generate a pd.Series of coefficients for only the significant factors and 
 # their 1st-order terms
-def generate_sig_model(doe_results):
+def generate_sig_model(doe_results, remove_var=None):
     
     # Fit results on all factors
-    X_labeled, y, est_fit = fit_results(doe_results)  
+    X, y, est_fit, feature_names = fit_results(doe_results, remove_var=remove_var)  
     
-    est_fit_old = est_fit
-    
-    # Re-fit results on only significant factors (and their first order components)
-    X_sig, est_sig_fit = fit_sig_results(X_labeled, y, est_fit)
-    
-    # Keep eliminating factors until there is no change in the set of factors
-    break_counter = 0
-    while len(est_fit_old.pvalues) != len(est_sig_fit.pvalues) and break_counter < 10:
-        break_counter += 1
-        est_fit_old = est_sig_fit
-        X_sig, est_sig_fit = fit_sig_results(X_sig, y, est_sig_fit)
+    # Re-fit results on only significant factors (and their lower-order components)
+    est_sig_fit, feature_names = backward_elimination(est_fit, X, y, feature_names)
     
     coefs = est_sig_fit.params
     
@@ -324,6 +381,8 @@ def generate_sig_model(doe_results):
 coefs = generate_sig_model(doe_results)
 
 #%% Create Gurobi model to optimize DOE results
+import gurobipy as gp
+from gurobipy import GRB
 
 # Create Gurobi environment and suppress output
 env = gp.Env(empty=True)
@@ -340,26 +399,26 @@ def optimize_model(coefs):
     
     # Create gurobi variables
     for factor in coefs.index:
-        if factor == 'wt':
-            factors_dict[factor] = model.addVar(vtype=GRB.CONTINUOUS, lb=0, ub=2, name=factor)
-        elif '^' not in factor and '*' not in factor:
+        # if factor == 'wt':
+        #     factors_dict[factor] = model.addVar(vtype=GRB.CONTINUOUS, lb=0, ub=2, name=factor)
+        if '^' not in factor and ' ' not in factor:
             factors_dict[factor] = model.addVar(vtype=GRB.CONTINUOUS, lb=0, ub=2, name=factor)
         else:
             factors_dict[factor] = model.addVar(vtype=GRB.CONTINUOUS, name=factor)
     
     # Add equality constraints
     for f in factors_dict:
-        if f == 'const': # Must maintain constant term, constrain this to 1
+        if f == '1': # Must maintain constant term, constrain this to 1
             factor = factors_dict[f]
             model.addConstr(factor == 1)
         if '^' in f: # Squared terms must be equal to the square of the first-order term
-            first_order_f = re.search("^[a-z0-9]*", str(f)).group(0) 
+            first_order_f = re.search("^[a-z0-9_]*", str(f)).group(0) 
             first_order_factor = factors_dict[first_order_f]
             factor = factors_dict[f]
             model.addConstr(factor == first_order_factor**2)
-        if '*' in f: # Interaction terms must be the product of the first-order terms
-            first_order_f1 = re.search("^[a-z0-9]*", str(f)).group(0)
-            first_order_f2 = re.search("[a-z0-9]*$", str(f)).group(0)
+        if ' ' in f: # Interaction terms must be the product of the first-order terms
+            first_order_f1 = re.search("^[a-z0-9_]*", str(f)).group(0)
+            first_order_f2 = re.search("[a-z0-9_]*$", str(f)).group(0)
             first_order_factor1 = factors_dict[first_order_f1]
             first_order_factor2 = factors_dict[first_order_f2]
             factor = factors_dict[f]
@@ -390,11 +449,11 @@ model = optimize_model(coefs)
 # This is saved in DOE2.xlsx
 
 parameters2 = {
-    "wt_list" : [1, 1], # number of 1MW wind turbines
+    "wt_list" : [1], # number of 1MW wind turbines
     "sp_list" : [2000, 5000, 8000], # area in m2 of solar panels
     "b_list" : [263, 516, 1144], # battery sizes in kW
     "c1_list" : [1, 2, 3], # constants for battery setpoint eqn
-    "c2_list" : [-1, 0, 1],
+    "c2_list" : [1, 2, 3],
     "c3_list" : [0, 1, 2]
     }
 
@@ -402,29 +461,29 @@ parameters2 = {
 doe2 = pd.read_excel("DOE2.xlsx")
 
 # Run DOE
-doe_results2, _ = run_doe(doe2, parameters2, forecast_store)
+doe_results2, _ = run_doe(doe2, parameters2)
 
-coefs2 = generate_sig_model(doe_results2)
+coefs2 = generate_sig_model(doe_results2, remove_var='wt_level')
 
 model2 = optimize_model(coefs2)
 
 #%%
 
 parameters3 = {
-    "wt_list" : [1, 1], # Only the case with 1 wind turbine is considered
+    "wt_list" : [1], # Only the case with 1 wind turbine is considered
     "sp_list" : [4000, 6500, 9000], # area in m2 of solar panels
     "b_list" : [0, 263, 516], # battery sizes in kW
-    "c1_list" : [1, 2, 3], # constants for battery setpoint eqn
-    "c2_list" : [-1, 0, 1],
-    "c3_list" : [0, 1, 2]
+    "c1_list" : [2, 3, 4], # constants for battery setpoint eqn
+    "c2_list" : [2, 3, 4],
+    "c3_list" : [-1, 0, 1]
     }
 
 # DOE form doesn't change, so no new DOE is loaded
 
 # Run DOE
-doe_results3, _ = run_doe(doe2, parameters3, forecast_store)
+doe_results3, _ = run_doe(doe2, parameters3)
 
-coefs3 = generate_sig_model(doe_results3)
+coefs3 = generate_sig_model(doe_results3, remove_var='wt_level')
 
 model3 = optimize_model(coefs3)
 
