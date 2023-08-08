@@ -9,11 +9,9 @@ import numpy as np
 import plant_components as pc
 from plant_components import pph
 import weather_energy_components as wec
+from weather_energy_components import years
 import time
 import pandas as pd
-
-# Number of years the model spans
-years = 8
 
 # Capex lifetime to calculate value of capex per year
 capex_life = 10
@@ -47,7 +45,10 @@ def generate_b_specs(b):
     
     return battery_specs
 
-# Pre-calculate forecast data
+# Pre-calculate forecast data. The forecast contains the total predicted energy generation
+# over (1) the next 3 hours, and (2) hours 4-6 after the present. As the energy generation
+# is dependent on solar panel coverage and number of wind turbines, forecasts are made
+# for every combination of sp and wt values input in the DOE.
 def prep_forecast(parameters):
     wt_list = parameters["wt_list"]
     sp_list = parameters["sp_list"]
@@ -74,7 +75,7 @@ def prep_forecast(parameters):
     return forecast_store
 
 
-# Run DOE scenario to generate profit at specified conditions in 'run'
+# Run a single DOE scenario to calculate profit at specified conditions in 'run'
 def run_scenario(forecast_store, parameters, run):
     
     # factor levels are between 0 and 2 to match indicies 
@@ -118,7 +119,7 @@ def run_scenario(forecast_store, parameters, run):
     total_renewable = 0 # kwh
     total_sx = 0 # mol
     
-    # Initiate necessary variables
+    # Initiate other necessary variables
     r2_prev = 0 
     reactor1_1 = pc.Reactor1()
     reactor1_1.state = "active"
@@ -129,7 +130,7 @@ def run_scenario(forecast_store, parameters, run):
     r2_e_prev = 0
     p_renew_tmin1 = 0
     
-    # Calculate conditions at each hourly state and store in arrays
+    # Calculate conditions at each hourly state and add to previous state
     for hour in range(wec.data_length-12):
         state = wec.Hourly_state(hour, solar_panel_specs, wind_turbine_specs)
         
@@ -159,6 +160,8 @@ def run_scenario(forecast_store, parameters, run):
             
             # Calculate reactor 2 state
             r2_sx_current = reactor2.react(energy_flow.to_r2, r2_prev)
+            
+            # Calculate total sulfur production
             total_sx += r2_sx_current/pph
             
             r2_prev = r2_sx_current
@@ -172,27 +175,27 @@ def run_scenario(forecast_store, parameters, run):
                 
         p_renew_tmin1 = p_renew_t_actual
     
-    # spread capex cost over 10 years, so cost per year is always /10
+    # spread capex cost over 'capex_life' in years
     capex = (battery_specs["cost"] + solar_panel_specs["cost"] + wind_turbine_specs["cost"])/capex_life
     
-    # Target production is 240 kmol S per year (1.92 million for 8 years). So, assume that S above this 
-    # value is worth 0. Otherwise, it always becomes advantageous to produce more
-    # S, even if we just use grid energy to do it.
-    revenue = (9.6*min(total_sx, 240000*years) + 0.1*e_to_grid)/years # divide by 8 years because 8 years of training data, -> revenue / year
+    # Target production is 240 kmol S per year, so it is assumed that S above this 
+    # value is worth 0
+    revenue = (9.6*min(total_sx, 240000*years) + 0.1*e_to_grid)/years # revenue / year
     
     # Roughly 15 kW required to make 1 mol S
-    opex = 0.25*e_from_grid/years # divide by 8 years because 8 years of training data, -> opex / year
+    opex = 0.25*e_from_grid/years # opex / year
     
-    profit = revenue - opex - capex
+    profit = revenue - opex - capex # profit / year
     
     return profit, revenue, opex, capex, total_sx, e_to_grid, e_from_grid
 
-# This is the CPU intensive function that runs run_scenario function for each 
+# This is the most CPU intensive function that runs run_scenario function for each 
 # run in the DOE
 def run_doe(doe, parameters, forecast_store = 0, show_run_status = True ):
     
     doe[["profit", "revenue", "opex", "capex", "total_sx", "e_to_grid", "e_from_grid"]] = np.zeros([len(doe), 7])
     
+    # To save time, the forecast_store may be input into run_doe if it exists
     if not isinstance(forecast_store, np.ndarray):
         forecast_store = prep_forecast(parameters)
     
@@ -232,7 +235,7 @@ parameters = {
 doe = pd.read_excel("DOE.xlsx")
 
 # Run DOE
-doe_results, forecast_store = run_doe(doe, parameters) #, forecast_store)
+doe_results, forecast_store = run_doe(doe, parameters) 
 
 #%% Necessary functions
 
@@ -293,6 +296,7 @@ def fit_results(doe_results, remove_var=None):
     X = pd.DataFrame(fit_tr_model, columns=features)
     
     indicies_to_remove = []
+    
     # Remove higher order terms of 'remove_var'. Leave the first order term.
     if remove_var:
         for i in range(len(features)):
@@ -302,9 +306,8 @@ def fit_results(doe_results, remove_var=None):
             if remove_var in feature and (" " in feature or "^" in feature):
                 indicies_to_remove.append(i) 
                 X.drop(columns=[feature], inplace=True)
-                
-        for index in indicies_to_remove:
-                features = np.delete(features, index)            
+                    
+        features = np.delete(features, indicies_to_remove)
     
     lr_model = LinearRegression()
     lr_model.fit(fit_tr_model, y)
@@ -318,6 +321,8 @@ def fit_results(doe_results, remove_var=None):
 
 X, y, est_fit, feature_names = fit_results(doe_results)
 
+#%%
+
 # According to https://www.biostat.jhsph.edu/~iruczins/teaching/jf/ch10.pdf
 # we shouldn't remove a lower-order feature that is a factor of a higher order
 # term. Also, interactions are a form of lower-order term and should not be removed 
@@ -327,13 +332,13 @@ X, y, est_fit, feature_names = fit_results(doe_results)
 lower_order_terms_f = make_lot_array(feature_names)
 inds_of_remaining_terms = list(range(len(feature_names)))
 
-feature_index_dict_f = {feature_names[i]:i for i in range(len(feature_names))}
-
-# use dictionary to look up indicies in lower_order_terms_f array based on feature
+# Matches index to feature in lower_order_terms_f
 feature_index_dict_f = {feature_names[i]:i for i in range(len(feature_names))}
 
 feature_names_uf = feature_names
 
+# Deletes highest p-value terms one at a time, if no higher-order terms exist,
+# until all (elegible) terms have a p-value of < 0.05
 def backward_elimination(est_fit, X, y, feature_names_uf):
     pvals = est_fit.pvalues
     
@@ -368,10 +373,7 @@ print(est_fit.summary())
 # their 1st-order terms
 def generate_sig_model(doe_results, remove_var=None):
     
-    # Fit results on all factors
     X, y, est_fit, feature_names = fit_results(doe_results, remove_var=remove_var)  
-    
-    # Re-fit results on only significant factors (and their lower-order components)
     est_sig_fit, feature_names = backward_elimination(est_fit, X, y, feature_names)
     
     coefs = est_sig_fit.params
@@ -399,8 +401,6 @@ def optimize_model(coefs):
     
     # Create gurobi variables
     for factor in coefs.index:
-        # if factor == 'wt':
-        #     factors_dict[factor] = model.addVar(vtype=GRB.CONTINUOUS, lb=0, ub=2, name=factor)
         if '^' not in factor and ' ' not in factor:
             factors_dict[factor] = model.addVar(vtype=GRB.CONTINUOUS, lb=0, ub=2, name=factor)
         else:

@@ -7,7 +7,9 @@ Created on Wed May 17 07:53:37 2023
 import pandas as pd
 from plant_components import pph
 
-data_length = round(87671*.8) #use first 80% of data as training (8 years)
+years = 8 # Number of years the training data spans 
+
+data_length = round(87671*years/10) # use first 8 years out of 10 total years of data
 
 cols = ["time","windspeed_100m (km/h)","shortwave_radiation (W/m²)"]
 
