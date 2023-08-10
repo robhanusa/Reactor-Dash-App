@@ -32,8 +32,9 @@ Winter months are colored blue, and this fades to red as the summer months appro
 
 Finally, the plant capex components and several process control constants are optimized by 
 running multiple simulations in a DOE format and maximizing the predicted profitability for 
-different configurations. The code and a detailed description of how this done is available in
-[long_term_output.ipynb](long_term_output.ipynb).
+different configurations. Machine learning is used to create a regression model and features are
+eliminated using a custom-made backward elimination function. The code and a detailed description 
+of how this done is available in [DOE.ipynb](DOE.ipynb).
 
 ## Instructions
 To run the app, follow the steps below:
